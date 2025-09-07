@@ -62,9 +62,13 @@ export default function App() {
 
   useEffect(() => {
     try {
-      // @ts-ignore experimental
-      if (navigator.virtualKeyboard)
-        navigator.virtualKeyboard.overlaysContent = true;
+      const vk = (navigator as any).virtualKeyboard as
+        | { overlaysContent?: boolean }
+        | undefined;
+      if (vk && typeof vk === "object") {
+        // overlaysContent is experimental; safe at runtime behind feature detection
+        (vk as any).overlaysContent = true;
+      }
     } catch {}
 
     const vv = window.visualViewport;
