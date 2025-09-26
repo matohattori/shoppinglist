@@ -12,9 +12,27 @@ export type State = { edit: boolean; items: Item[] };
 
 const STORAGE_KEY = "shopping_list_v1_react";
 const HISTORY_LIMIT = 10;
-const ROW_SPACING = 6; // px between rows
+const ROW_SPACING = 6; // px between rows (margin-top for rows except first)
+const ROW_H = 44; // ★ 固定タイル高さ（px）
 const DRAG_START_PX =
   navigator.maxTouchPoints || "ontouchstart" in window ? 2 : 6;
+const CHECKED_VH = 28; // 非編集時：チェック済みエリアの固定高さ（vh）
+const UNCHECKED_VH = 52; // 非編集時：未チェックエリアの固定高さ（vh）
+const BUTTONS_VH = 20; // ボタンエリアの固定高さ（vh）
+const EDIT_UNCHECKED_VH = UNCHECKED_VH + CHECKED_VH; // 編集モード時は未チェックを拡張（案A）
+
+// ★ 全チェック時の背景候補（5枚）
+const ALL_DONE_IMAGES = [
+  "/hawaii1.png",
+  "/hawaii2.png",
+  "/hawaii3.png",
+  "/hawaii4.png",
+  "/hawaii5.png",
+];
+
+// ---- 後方互換のための単一URL（存在すれば優先） ----
+const getAllDoneBgUrl = () =>
+  ((window as any).__ALL_DONE_BG_URL as string) || "/hawaii.png";
 
 // ---- Haptics（音なし・バイブ専用） ----
 const vibrateSafe = (p: number | number[]) => {
@@ -26,7 +44,6 @@ const vibrateSafe = (p: number | number[]) => {
   } catch {}
   return false;
 };
-// ユーザー操作直下で直接 vibrate を叩く
 const vibrateNow = (p: number | number[]) => {
   try {
     if ("vibrate" in navigator) {
@@ -34,8 +51,6 @@ const vibrateNow = (p: number | number[]) => {
     }
   } catch {}
 };
-
-// --- Haptics priming (Android Chromeでの発火率を上げる) ---
 const hapticsPrimedRef: { current: boolean } = { current: false };
 const primeHaptics = () => {
   if (hapticsPrimedRef.current) return;
@@ -64,7 +79,6 @@ function reorderByInsert(
   const pos = Math.max(0, Math.min(insertAt, rest.length));
   return [...rest.slice(0, pos), ...moving, ...rest.slice(pos)];
 }
-
 function reorderAndUncheck(
   items: Item[],
   draggingIds: string[],
@@ -78,8 +92,7 @@ function reorderAndUncheck(
 
 // ---- paste helper (pure) ----
 export function pasteMerge(original: string, cursor: number, pasted: string) {
-  // FIX: unterminated regex → 正しい改行分割（CRLF/ LF）
-  const lines = pasted.split(/\r?\n/).filter((l) => l.length > 0); // skip blank lines, keep bullets
+  const lines = pasted.split(/\r?\n/).filter((l) => l.length > 0);
   if (!lines.length) return { first: original, rest: [] as string[] };
   const before = original.slice(0, cursor);
   const after = original.slice(cursor);
@@ -96,16 +109,13 @@ function usePersistentState(initial: State) {
       return initial;
     }
   });
-
   const historyRef = useRef<string[]>([]);
   const redoRef = useRef<string[]>([]);
-
   const pushHistory = (s: State) => {
     historyRef.current.push(JSON.stringify(s));
     if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift();
     redoRef.current.length = 0;
   };
-
   const undo = () => {
     if (!historyRef.current.length) return;
     const cur = JSON.stringify(state);
@@ -113,7 +123,6 @@ function usePersistentState(initial: State) {
     const prev = historyRef.current.pop()!;
     setState(JSON.parse(prev));
   };
-
   const redo = () => {
     if (!redoRef.current.length) return;
     const cur = JSON.stringify(state);
@@ -121,12 +130,9 @@ function usePersistentState(initial: State) {
     const next = redoRef.current.pop()!;
     setState(JSON.parse(next));
   };
-
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
-
-  // expose for paste-merge
   useEffect(() => {
     (window as any).__setAppState = (s: State) => setState(s);
     (window as any).__getAppState = () => state;
@@ -135,8 +141,29 @@ function usePersistentState(initial: State) {
       delete (window as any).__getAppState;
     };
   }, [state]);
-
   return { state, setState, pushHistory, undo, redo } as const;
+}
+
+// ==== viewport helpers (mobile iframe 100vh fix) ====
+function useRealViewportHeight() {
+  useEffect(() => {
+    const set = () => {
+      const h = window.innerHeight;
+      document.documentElement.style.setProperty("--app-vh", `${h}px`);
+    };
+    set();
+    const vv = (window as any).visualViewport as VisualViewport | undefined;
+    window.addEventListener("resize", set);
+    window.addEventListener("orientationchange", set);
+    vv?.addEventListener("resize", set);
+    vv?.addEventListener("scroll", set);
+    return () => {
+      window.removeEventListener("resize", set);
+      window.removeEventListener("orientationchange", set);
+      vv?.removeEventListener("resize", set);
+      vv?.removeEventListener("scroll", set);
+    };
+  }, []);
 }
 
 // ========================= App =========================
@@ -146,8 +173,30 @@ export default function App() {
     items: [{ id: uid(), text: "", checked: false }],
   });
 
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
+  // 100vh 問題（スマホ iframe）対策
+  useRealViewportHeight();
+  useEffect(() => {
+    const el = document.documentElement;
+    const body = document.body;
+    el.style.height = "100%";
+    body.style.height = "100%";
+    const root =
+      document.getElementById("root") || document.getElementById("app");
+    if (root) (root as HTMLElement).style.height = "100%";
+    return () => {
+      el.style.height = "";
+      body.style.height = "";
+      if (root) (root as HTMLElement).style.height = "";
+    };
+  }, []);
+
+  // 複数ペイン用 Refs
+  const uncheckedListRef = useRef<HTMLDivElement | null>(null);
+  const uncheckedWrapRef = useRef<HTMLDivElement | null>(null);
+  const checkedListRef = useRef<HTMLDivElement | null>(null);
+  const checkedWrapRef = useRef<HTMLDivElement | null>(null);
+
+  // DnD Refs（未チェック側のみ）
   const ghostRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<null | {
     draggingIds: string[];
@@ -163,8 +212,51 @@ export default function App() {
 
   // 表示順
   const displayItems = useMemo(() => sortUncheckedFirst(state.items), [state]);
+  const uncheckedItems = useMemo(
+    () => displayItems.filter((i) => !i.checked),
+    [displayItems]
+  );
+  const checkedItemsAsc = useMemo(
+    () => displayItems.filter((i) => i.checked),
+    [displayItems]
+  );
 
-  // ---- typing session (for Undo/Redo unit) ----
+  // 進捗（非空のみ）
+  const stats = useMemo(() => {
+    const valid = state.items.filter((it) => it.text.trim() !== "");
+    const total = valid.length;
+    const done = valid.filter((it) => it.checked).length;
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    return { total, done, pct };
+  }, [state.items]);
+
+  // all-checked（通常時のみ）
+  const allCheckedBlue =
+    !state.edit &&
+    state.items.length > 0 &&
+    state.items.every((it) => it.checked);
+
+  // 全チェック時の背景画像（5枚からランダム選択、遷移時に決定）
+  const [allDoneUrl, setAllDoneUrl] = useState<string | null>(null);
+  const pickRandomAllDone = () =>
+    ALL_DONE_IMAGES[Math.floor(Math.random() * ALL_DONE_IMAGES.length)];
+  useEffect(() => {
+    if (allCheckedBlue) {
+      const override = (window as any).__ALL_DONE_BG_URL as string | undefined;
+      if (override) {
+        setAllDoneUrl(override);
+        return;
+      }
+      const ready: Set<string> | undefined = (window as any).__ALL_DONE_READY__;
+      const pool = ready && ready.size ? Array.from(ready) : ALL_DONE_IMAGES;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      setAllDoneUrl(pick);
+    } else {
+      setAllDoneUrl(null);
+    }
+  }, [allCheckedBlue]);
+
+  // タイピング単位（Undo/Redo用）
   const typingRef = useRef<{ active: boolean }>({ active: false });
   const beginTypingIfNeeded = () => {
     if (!typingRef.current.active) {
@@ -176,7 +268,7 @@ export default function App() {
     typingRef.current.active = false;
   };
 
-  // remove blank items when leaving edit
+  // 編集OFFで空白行を削除
   useEffect(() => {
     if (!state.edit) {
       const cleaned = state.items.filter((it) => it.text.trim() !== "");
@@ -213,16 +305,47 @@ export default function App() {
 
   // 全チェック背景画像プリロード（5枚すべて）＋非同期デコード＆readyセット
   useEffect(() => {
-    document.body.style.overflowX = "hidden";
-    return () => {
-      document.body.style.overflowX = "";
-    };
+    const urls: string[] = (window as any).__ALL_DONE_BG_URL
+      ? [(window as any).__ALL_DONE_BG_URL]
+      : ALL_DONE_IMAGES;
+
+    // <link rel="preload" as="image"> を追加（重複防止）
+    urls.forEach((href) => {
+      if (
+        !document.querySelector(
+          `link[rel="preload"][as="image"][href="${href}"]`
+        )
+      ) {
+        const l = document.createElement("link");
+        l.rel = "preload";
+        l.as = "image";
+        l.href = href;
+        document.head.appendChild(l);
+      }
+    });
+
+    // 画像を先読みし decode 済みを ready に登録
+    const ready = new Set<string>();
+    urls.forEach((src) => {
+      const img = new Image();
+      try {
+        (img as any).decoding = "async";
+      } catch {}
+      img.src = src;
+      const dec = (img as any).decode;
+      if (typeof dec === "function") {
+        (dec.call(img) as Promise<void>)
+          .then(() => ready.add(src))
+          .catch(() => {});
+      } else {
+        img.onload = () => ready.add(src);
+      }
+    });
+    (window as any).__ALL_DONE_READY__ = ready;
   }, []);
 
-  // ========================= Row ops =========================
-  const setItemText = (index: number, text: string) => {
-    const id = displayItems[index]?.id;
-    if (!id) return;
+  // ===== Row ops =====
+  const setItemTextById = (id: string, text: string) => {
     beginTypingIfNeeded();
     setState(({ items, edit }) => ({
       edit,
@@ -231,28 +354,38 @@ export default function App() {
   };
 
   const toggleCheckedById = (id: string) => {
-    if (state.edit) return; // 非編集モードのみ
-    const nextItems = state.items.map((it) => {
-      if (it.id !== id) return it;
-      if (it.checked) return { ...it, checked: false, _checkedAt: undefined };
-      return { ...it, checked: true, _checkedAt: Date.now() };
-    });
+    if (state.edit) return; // 非編集のみ
+    const wasChecked = !!state.items.find((it) => it.id === id)?.checked;
+    const nextItems = state.items.map((it) =>
+      it.id === id
+        ? it.checked
+          ? { ...it, checked: false, _checkedAt: undefined }
+          : { ...it, checked: true, _checkedAt: Date.now() }
+        : it
+    );
     const willAllChecked =
       nextItems.length > 0 && nextItems.every((it) => it.checked);
-    // チェック: 1ms、全チェック完了: 50-50-50ms、その他なし
     vibrateNow(1);
-    if (willAllChecked) {
-      vibrateNow([50, 50, 50]);
-    }
-
+    if (willAllChecked) vibrateNow([50, 50, 50]);
+    const madeChecked = !wasChecked;
     pushHistory(state);
     setState(({ edit }) => ({ edit, items: nextItems }));
+    if (madeChecked && !state.edit) {
+      requestAnimationFrame(() => {
+        const w = checkedWrapRef.current;
+        if (!w) return;
+        try {
+          w.scrollTo({ top: w.scrollHeight, behavior: "smooth" });
+          setTimeout(() => {
+            w.scrollTo({ top: w.scrollHeight, behavior: "smooth" });
+          }, 60);
+        } catch {}
+      });
+    }
   };
 
-  const toggleSelected = (index: number, v: boolean) => {
+  const toggleSelected = (id: string, v: boolean) => {
     if (!state.edit) return;
-    const id = displayItems[index]?.id;
-    if (!id) return;
     pushHistory(state);
     setState(({ items, edit }) => ({
       edit,
@@ -260,10 +393,8 @@ export default function App() {
     }));
   };
 
-  const insertEmptyAfter = (index: number) => {
+  const insertEmptyAfterId = (id: string) => {
     if (!state.edit) return;
-    const id = displayItems[index]?.id;
-    if (!id) return;
     pushHistory(state);
     setState(({ items, edit }) => {
       const pos = items.findIndex((it) => it.id === id);
@@ -309,17 +440,18 @@ export default function App() {
     setState({ edit: true, items: [{ id: uid(), text: "", checked: false }] });
     setResetArmed(false);
   };
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
-    };
-  }, []);
+    },
+    []
+  );
 
-  // ========================= DnD（安定版） =========================
+  // ===== DnD（未チェック側のみ） =====
   const onPointerDownHandle = (
     e: React.PointerEvent<HTMLElement>,
-    index: number,
-    suppressDefault: boolean = true
+    id: string,
+    suppressDefault = true
   ) => {
     if (!state.edit) return;
     if (suppressDefault) {
@@ -330,18 +462,16 @@ export default function App() {
       (e.currentTarget as any).setPointerCapture?.(e.pointerId);
     } catch {}
     (document.activeElement as HTMLElement | null)?.blur?.();
-
-    const list = listRef.current;
+    const list = uncheckedListRef.current;
     if (!list) return;
-    const pressed = displayItems[index];
-    if (!pressed || pressed.checked) return;
+    const pressed = uncheckedItems.find((it) => it.id === id);
+    if (!pressed) return;
 
     const selectedIds = state.items
       .filter((it) => it._selected && !it.checked)
       .map((it) => it.id);
     const draggingIds =
       pressed._selected && selectedIds.length > 1 ? selectedIds : [pressed.id];
-
     const rowEls = Array.from(list.children).filter(
       (el) =>
         (el as HTMLElement)?.dataset?.id &&
@@ -359,7 +489,6 @@ export default function App() {
       started: false,
       totalH: 0,
     };
-
     window.addEventListener("pointermove", onPointerMove as any, {
       passive: false,
     });
@@ -367,13 +496,11 @@ export default function App() {
     window.addEventListener("pointercancel", onPointerCancel as any, {
       once: true,
     });
-
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     longPressTimerRef.current = window.setTimeout(() => {
-      if (!dragRef.current?.started && listRef.current)
-        startDrag(listRef.current, e.clientY);
+      if (!dragRef.current?.started && uncheckedListRef.current)
+        startDrag(uncheckedListRef.current, e.clientY);
     }, 120);
-
     clickSuppressRef.current = (evt: MouseEvent) => {
       evt.preventDefault();
       evt.stopPropagation();
@@ -384,14 +511,12 @@ export default function App() {
   function startDrag(list: HTMLDivElement, clientY: number) {
     if (!dragRef.current || dragRef.current.started) return;
     const { draggingIds, offsetY } = dragRef.current;
-
     const rowEls = Array.from(list.children).filter(
       (el) =>
         (el as HTMLElement)?.dataset?.id &&
         draggingIds.includes(((el as HTMLElement).dataset!.id as string) || "")
     ) as HTMLElement[];
     if (!rowEls.length) return;
-
     const sumHeights = rowEls.reduce(
       (sum, r) => sum + r.getBoundingClientRect().height,
       0
@@ -424,7 +549,6 @@ export default function App() {
     document.body.appendChild(ghost);
     ghostRef.current = ghost;
 
-    // collapse originals during drag
     rowEls.forEach((r) => {
       r.setAttribute("data-drag-collapsed", "1");
       (r as HTMLElement).style.display = "none";
@@ -440,34 +564,37 @@ export default function App() {
     updatePlaceholder(list, clientY, draggingIds, totalH);
     const y = clientY - offsetY;
     ghost.style.transform = `translate3d(0, ${y}px, 0)`;
-
     dragRef.current.started = true;
     dragRef.current.totalH = totalH;
   }
 
   const onPointerMove = (ev: PointerEvent) => {
-    if (!dragRef.current || !listRef.current) return;
+    if (!dragRef.current || !uncheckedListRef.current) return;
     const { startX, startY, started, offsetY, draggingIds, totalH } =
       dragRef.current;
     const dx = Math.abs(ev.clientX - startX),
       dy = Math.abs(ev.clientY - startY);
     if (!started && Math.max(dx, dy) < DRAG_START_PX) return;
-    if (!started) startDrag(listRef.current, ev.clientY);
-
+    if (!started) startDrag(uncheckedListRef.current, ev.clientY);
     ev.preventDefault();
     if (ghostRef.current)
       ghostRef.current.style.transform = `translate3d(0, ${
         ev.clientY - offsetY
       }px, 0)`;
-
-    if (wrapRef.current) {
+    if (uncheckedWrapRef.current) {
       const edge = 50;
-      const rect = wrapRef.current.getBoundingClientRect();
-      if (ev.clientY < rect.top + edge) wrapRef.current.scrollTop -= 12;
-      if (ev.clientY > rect.bottom - edge) wrapRef.current.scrollTop += 12;
+      const rect = uncheckedWrapRef.current.getBoundingClientRect();
+      if (ev.clientY < rect.top + edge)
+        uncheckedWrapRef.current.scrollTop -= 12;
+      if (ev.clientY > rect.bottom - edge)
+        uncheckedWrapRef.current.scrollTop += 12;
     }
-
-    updatePlaceholder(listRef.current, ev.clientY, draggingIds, totalH);
+    updatePlaceholder(
+      uncheckedListRef.current,
+      ev.clientY,
+      draggingIds,
+      totalH
+    );
     if (dragRef.current) dragRef.current.lastY = ev.clientY;
   };
 
@@ -481,9 +608,8 @@ export default function App() {
       clickSuppressRef.current = null;
     }
     window.removeEventListener("pointermove", onPointerMove as any);
-
     const started = !!dragRef.current?.started;
-    const list = listRef.current;
+    const list = uncheckedListRef.current;
     if (!started) {
       const ph = list?.querySelector(
         '[data-placeholder="1"]'
@@ -496,7 +622,6 @@ export default function App() {
       dragRef.current = null;
       return;
     }
-
     const draggingIds = dragRef.current?.draggingIds || [];
     ghostRef.current?.remove();
     ghostRef.current = null;
@@ -504,12 +629,10 @@ export default function App() {
       dragRef.current = null;
       return;
     }
-
     const { insertAt } = finalizePlaceholder(list, draggingIds);
-
     const cleanup = () => {
       requestAnimationFrame(() => {
-        const l = listRef.current;
+        const l = uncheckedListRef.current;
         if (!l) return;
         const ph2 = l.querySelector(
           '[data-placeholder="1"]'
@@ -521,14 +644,11 @@ export default function App() {
         });
       });
     };
-
     dragRef.current = null;
-
     if (insertAt == null) {
       cleanup();
       return;
     }
-
     pushHistory(state);
     setState(({ items, edit }) => ({
       edit,
@@ -549,7 +669,7 @@ export default function App() {
     window.removeEventListener("pointermove", onPointerMove as any);
     ghostRef.current?.remove();
     ghostRef.current = null;
-    const list = listRef.current;
+    const list = uncheckedListRef.current;
     const ph = list?.querySelector(
       '[data-placeholder="1"]'
     ) as HTMLDivElement | null;
@@ -579,8 +699,6 @@ export default function App() {
         ds.dragCollapsed === "1" || he.style.display === "none";
       return !isPh && !isCollapsed;
     });
-
-    // 下方向ドラッグ時：1アイテム分のスペースが空いたら繰上げ（グループ平均行高）
     const dr = dragRef.current;
     const topY = clientY - (dr?.offsetY ?? 0);
     const prevY = dr?.lastY ?? dr?.startY ?? clientY;
@@ -588,25 +706,22 @@ export default function App() {
     const unitH = (() => {
       const n = Math.max(1, draggingIds.length);
       const avg = Math.max(1, Math.round((dr?.totalH ?? totalH) / n));
-      return isFinite(avg) && avg > 1 ? avg : 28;
+      return isFinite(avg) && avg > 1 ? avg : ROW_H;
     })();
-
     let targetIndex = 0;
     for (let i = 0; i < children.length; i++) {
       const he = children[i] as HTMLElement;
       const id = he.dataset?.id || "";
       const rect = he.getBoundingClientRect();
-      const isChecked = he.dataset?.checked === "1"; // fixed rows (edit)
-      if (draggingIds.includes(id) || isChecked) continue;
+      if (draggingIds.includes(id)) continue;
       const threshold = draggingDown ? rect.top : rect.top + rect.height / 2;
       const probe = draggingDown
         ? topY + (dr?.totalH ?? totalH) - Math.min(rect.height, unitH)
         : clientY;
       if (probe > threshold) targetIndex = i + 1;
     }
-
     const ref = children[targetIndex] as HTMLElement | undefined;
-    const phH = Math.max(28, totalH - ROW_SPACING);
+    const phH = Math.max(ROW_H, totalH - ROW_SPACING);
     ph.style.height = `${phH}px`;
     ph.style.marginTop = targetIndex === 0 ? "0px" : `${ROW_SPACING}px`;
     ph.style.marginBottom = ref ? `${ROW_SPACING}px` : "0px";
@@ -624,24 +739,16 @@ export default function App() {
     const insertAt = all.slice(0, phPos).filter((el) => {
       const he = el as HTMLElement;
       const id = he.dataset?.id || "";
-      const isPh = he.dataset?.placeholder === "1";
+      const isPh = (he as any).dataset?.placeholder === "1";
       const isCollapsed =
-        he.dataset?.dragCollapsed === "1" ||
+        (he as any).dataset?.dragCollapsed === "1" ||
         (he as HTMLElement).style.display === "none";
-      const isChecked = he.dataset?.checked === "1"; // fixed rows (edit)
-      return !isPh && !isCollapsed && !isChecked && !draggingIds.includes(id);
+      return !isPh && !isCollapsed && !draggingIds.includes(id);
     }).length;
     return { insertAt };
   }
 
-  // ========================= Render =========================
-  // color rule: blue only when NON-EDIT mode and all checked
-  const allCheckedBlue =
-    !state.edit &&
-    state.items.length > 0 &&
-    state.items.every((it) => it.checked);
-
-  // Run pure-function tests once (log only)
+  // ============== Render ==============
   useEffect(() => {
     const r = runTests();
     if (r.failed) console.warn("[Tests] Failed:", r.failures);
@@ -649,7 +756,14 @@ export default function App() {
 
   return (
     <div
-      style={{ display: "grid", gridTemplateRows: "auto 1fr", height: "100vh" }}
+      style={{
+        display: "grid",
+        height: "var(--app-vh)",
+        gridTemplateRows: state.edit
+          ? `auto minmax(0,1fr) auto` /* 編集モード：未チェックが残り全量、ボタンは中身分だけ */
+          : `auto ${CHECKED_VH}vh minmax(0,1fr) auto` /* 通常：チェック済みは固定vh、未チェックは残り全量、ボタンは中身分だけ */,
+        overflow: "hidden",
+      }}
       onPointerDown={() => {
         primeHaptics();
       }}
@@ -660,144 +774,122 @@ export default function App() {
         primeHaptics();
       }}
     >
+      {/* Header: Progress bar */}
       <div
         style={{
           position: "sticky",
           top: 0,
-          zIndex: 3,
-          display: "flex",
-          gap: 6,
-          alignItems: "center",
-          padding: 6,
+          zIndex: 4,
           background: "#fff",
           borderBottom: "1px solid #e5e7eb",
         }}
       >
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          {/* Reset (leftmost). Two-step: icon -> red Reset */}
-          <button
-            onClick={() => {
-              primeHaptics();
-              resetArmed ? doReset() : armReset();
-            }}
-            onBlur={() => setResetArmed(false)}
-            title={resetArmed ? "Reset 実行" : "全消去（確認付き）"}
+        <div style={{ padding: "10px 12px 8px" }}>
+          <div
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 10,
-              display: "grid",
-              placeItems: "center",
-              border: "1px solid #e5e7eb",
-              background: resetArmed ? "#ef4444" : "#fff",
-              color: resetArmed ? "#fff" : "#111",
-              fontWeight: 600,
-              fontSize: 16,
+              display: "flex",
+              justifyContent: "flex-end",
+              marginBottom: 6,
             }}
           >
-            {resetArmed ? "Reset" : "⟲"}
-          </button>
-          {/* Undo */}
-          <button
-            onClick={() => {
-              primeHaptics();
-              undo();
-            }}
-            title="元に戻す"
+            <div style={{ fontSize: 12, color: "#6b7280" }}>
+              {stats.done} / {stats.total} ({stats.pct}%)
+            </div>
+          </div>
+          <div
+            aria-label="progress"
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: 10,
-              display: "grid",
-              placeItems: "center",
-              border: "1px solid #e5e7eb",
-              background: "#fff",
-              fontSize: 18,
+              height: 8,
+              borderRadius: 999,
+              background: "#f1f5f9",
+              overflow: "hidden",
+              boxShadow: "inset 0 0 0 1px #e5e7eb",
             }}
           >
-            ↶
-          </button>
-          {/* Redo */}
-          <button
-            onClick={() => {
-              primeHaptics();
-              redo();
-            }}
-            title="やり直す"
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 10,
-              display: "grid",
-              placeItems: "center",
-              border: "1px solid #e5e7eb",
-              background: "#fff",
-              fontSize: 18,
-            }}
-          >
-            ↷
-          </button>
-          {/* Edit (rightmost) */}
-          <button
-            onClick={() => {
-              primeHaptics();
-              endTyping();
-              setState((s) => ({ edit: !s.edit, items: s.items }));
-            }}
-            aria-pressed={state.edit}
-            title={state.edit ? "編集モード（ON）" : "編集モード（OFF）"}
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 10,
-              display: "grid",
-              placeItems: "center",
-              border: "1px solid #e5e7eb",
-              background: state.edit ? "#16a34a" : "#fff",
-              color: state.edit ? "#fff" : "#111",
-              fontSize: 18,
-            }}
-          >
-            ✏︎
-          </button>
+            <div
+              style={{
+                width: `${stats.pct}%`,
+                height: "100%",
+                background: "linear-gradient(90deg,#93c5fd,#2563eb)",
+                transition: "width .18s ease",
+              }}
+            />
+          </div>
         </div>
       </div>
 
+      {/* Checked Area（通常時のみ／固定高さ／内部スクロール） */}
+      {!state.edit && (
+        <div
+          ref={checkedWrapRef}
+          style={{
+            overflow: "auto",
+            padding: 10,
+            borderBottom: "1px solid #eef2f7",
+            background: allCheckedBlue ? "#eaf2ff" : "#f8fafc",
+          }}
+        >
+          <div
+            ref={checkedListRef}
+            style={{ display: "flex", flexDirection: "column", gap: 0 }}
+          >
+            {checkedItemsAsc.map((item, i) => (
+              <Row
+                key={item.id}
+                item={item}
+                index={i}
+                edit={state.edit}
+                allCheckedBlue={allCheckedBlue}
+                onInput={() => {}}
+                onEnter={() => {}}
+                onToggleChecked={() => toggleCheckedById(item.id)}
+                onToggleSelected={() => {}}
+                onDelete={() => {
+                  if (state.edit) deleteItem(item.id);
+                }}
+                onPointerDownHandle={() => {}}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Unchecked Area（固定高さ／内部スクロール） */}
       <div
-        ref={wrapRef}
+        ref={uncheckedWrapRef}
         style={{
           overflow: "auto",
           padding: 12,
-          paddingBottom: "calc(16px + var(--kbd-pad))",
-          backgroundImage: allCheckedBlue
-            ? "linear-gradient(180deg, rgba(147,197,253,0.30), rgba(147,197,253,0.18))"
-            : undefined,
+          backgroundImage: allDoneUrl ? `url(${allDoneUrl})` : undefined,
+          backgroundSize: allCheckedBlue ? "cover" : undefined,
+          backgroundPosition: allCheckedBlue ? "center" : undefined,
+          backgroundRepeat: allCheckedBlue ? "no-repeat" : undefined,
         }}
       >
         <div
-          ref={listRef}
+          ref={uncheckedListRef}
           style={{ display: "flex", flexDirection: "column", gap: 0 }}
         >
-          {displayItems.map((item, i) => (
+          {uncheckedItems.map((item, i) => (
             <Row
               key={item.id}
               item={item}
               index={i}
               edit={state.edit}
-              onInput={(t) => setItemText(i, t)}
+              onInput={(t) => setItemTextById(item.id, t)}
               onEnter={() => {
                 endTyping();
-                insertEmptyAfter(i);
+                insertEmptyAfterId(item.id);
               }}
               onToggleChecked={() => toggleCheckedById(item.id)}
-              onToggleSelected={(v) => toggleSelected(i, v)}
+              onToggleSelected={(v) => toggleSelected(item.id, v)}
               onDelete={() => {
                 endTyping();
                 deleteItem(item.id);
               }}
               onPointerDownHandle={(e) => {
                 endTyping();
-                onPointerDownHandle(e, i, true);
+                onPointerDownHandle(e, item.id, true);
               }}
               allCheckedBlue={allCheckedBlue}
             />
@@ -924,25 +1016,18 @@ function Row(props: {
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
-    const MIN = 24; // 1行分の高さ
-    ta.style.padding = "0"; // UAデフォルトの内側余白を打ち消す
-    ta.style.height = "0px"; // 再計測
-    const h = Math.max(
-      MIN,
-      Math.min(ta.scrollHeight, window.innerHeight * 0.35)
-    );
-    ta.style.height = h + "px";
+    ta.style.padding = "0";
+    const innerH = Math.max(1, ROW_H - 12); // タイルpadding(上下6px)を除いた高さ
+    ta.style.height = innerH + "px";
+    ta.style.lineHeight = innerH + "px"; // テキストを垂直中央に
+    ta.style.fontSize = "16px";
   }, [item.text, edit]);
 
-  // backgrounds:
-  // - non-edit & all checked: blue (濃いめ)
-  // - checked item: darker gray
-  const bgColor = allCheckedBlue
-    ? "#93c5fd"
-    : item.checked
-    ? "#cbd5e1"
+  const bgColor = item.checked
+    ? allCheckedBlue
+      ? "#2563eb"
+      : "#cbd5e1"
     : "#fff";
-
   const rowStyle: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
@@ -956,6 +1041,7 @@ function Row(props: {
     background: bgColor,
     boxSizing: "border-box",
     touchAction: "none",
+    height: ROW_H,
   };
 
   if (edit && item.checked) {
@@ -972,7 +1058,7 @@ function Row(props: {
           value={item.text}
           readOnly
           spellCheck={false}
-          onBlur={() => props.onEndTyping()}
+          onBlur={() => {}}
           style={{
             flex: 1,
             minWidth: 0,
@@ -982,11 +1068,7 @@ function Row(props: {
             background: "transparent",
             color: "#777",
             textDecoration: "line-through",
-            padding: "0",
-            fontSize: 16,
-            lineHeight: "24px",
-            minHeight: "24px",
-            alignSelf: "center",
+            padding: 0,
           }}
         />
       </div>
@@ -1046,7 +1128,6 @@ function Row(props: {
         onKeyDown={(e) => {
           if (edit && e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            props.onEndTyping();
             props.onEnter();
           }
         }}
@@ -1054,7 +1135,7 @@ function Row(props: {
           if (!edit) return;
           const data = e.clipboardData || (window as any).clipboardData;
           const text = data?.getData?.("text") ?? "";
-          if (!text || !text.includes("\n")) return; // single-line: default
+          if (!text || !text.includes("\n")) return;
           e.preventDefault();
           const ta = e.currentTarget as HTMLTextAreaElement;
           const pos = ta.selectionStart ?? ta.value.length;
@@ -1095,7 +1176,6 @@ function Row(props: {
           } catch {}
         }}
         spellCheck={false}
-        onBlur={() => props.onEndTyping()}
         style={{
           flex: 1,
           minWidth: 0,
@@ -1104,11 +1184,7 @@ function Row(props: {
           resize: "none",
           background: "transparent",
           textDecoration: item.checked ? "line-through" : "none",
-          padding: "0",
-          fontSize: 16,
-          lineHeight: "24px",
-          minHeight: "24px",
-          alignSelf: "center",
+          padding: 0,
         }}
       />
       {edit && !item.checked && (
@@ -1167,39 +1243,44 @@ function runTests() {
   type T = { name: string; fn: () => void };
   const tests: T[] = [];
 
+  // 1) reorderByInsert contiguous
   tests.push({
     name: "reorderByInsert contiguous",
     fn: () => {
-      const a = { id: "a", text: "a", checked: false } as Item;
-      const b = { id: "b", text: "b", checked: false } as Item;
-      const c = { id: "c", text: "c", checked: false } as Item;
-      const d = { id: "d", text: "d", checked: false } as Item;
+      const a: Item = { id: "a", text: "a", checked: false };
+      const b: Item = { id: "b", text: "b", checked: false };
+      const c: Item = { id: "c", text: "c", checked: false };
+      const d: Item = { id: "d", text: "d", checked: false };
       const out = reorderByInsert([a, b, c, d], [b.id, c.id], 0);
       if (out.map((x) => x.id).join("") !== "bcad") throw new Error("wrong");
     },
   });
 
+  // 2) reorderAndUncheck clears flags
   tests.push({
     name: "reorderAndUncheck clears flags",
     fn: () => {
-      const a = { id: "a", text: "a", checked: true, _selected: true } as Item;
-      const b = { id: "b", text: "b", checked: false } as Item;
+      const a: Item = { id: "a", text: "a", checked: true, _selected: true };
+      const b: Item = { id: "b", text: "b", checked: false };
       const out = reorderAndUncheck([a, b], [a.id], 1);
       if (!(out[1].id === "a" && !out[1].checked && !out[1]._selected))
         throw new Error("flags not cleared");
     },
   });
 
+  // 3) sortUncheckedFirst order (unchecked first, then checked by time asc)
   tests.push({
     name: "sortUncheckedFirst order",
     fn: () => {
-      const a = { id: "a", text: "a", checked: true } as Item;
-      const b = { id: "b", text: "b", checked: false } as Item;
-      const out = sortUncheckedFirst([a, b]);
-      if (out[0].id !== "b" || out[1].id !== "a") throw new Error("order");
+      const a: Item = { id: "a", text: "a", checked: true, _checkedAt: 200 };
+      const b: Item = { id: "b", text: "b", checked: false };
+      const c: Item = { id: "c", text: "c", checked: true, _checkedAt: 300 };
+      const out = sortUncheckedFirst([a, b, c]);
+      if (out.map((o) => o.id).join("") !== "bac") throw new Error("order");
     },
   });
 
+  // 4) pasteMerge splits correctly
   tests.push({
     name: "pasteMerge splits correctly",
     fn: () => {
@@ -1212,7 +1293,7 @@ function runTests() {
     },
   });
 
-  // extra tests
+  // 5) pasteMerge single line no rest
   tests.push({
     name: "pasteMerge single line no rest",
     fn: () => {
@@ -1222,18 +1303,19 @@ function runTests() {
     },
   });
 
+  // 6) reorderAndUncheck multi move
   tests.push({
     name: "reorderAndUncheck multi move",
     fn: () => {
-      const x = (id: string) => ({ id, text: id, checked: false } as Item);
-      const arr = [x("a"), x("b"), x("c"), x("d")];
+      const x = (id: string): Item => ({ id, text: id, checked: false });
+      const arr: Item[] = [x("a"), x("b"), x("c"), x("d")];
       const out = reorderAndUncheck(arr, ["b", "c"], 3);
       if (out.map((o) => o.id).join("") !== "adbc")
         throw new Error("multi move order");
     },
   });
 
-  // additional regression: CRLF paste
+  // 7) pasteMerge CRLF
   tests.push({
     name: "pasteMerge CRLF",
     fn: () => {
@@ -1243,16 +1325,66 @@ function runTests() {
     },
   });
 
-  // new: checked items stack by newest
+  // 8) sortUncheckedFirst checked by _checkedAt asc
   tests.push({
-    name: "sortUncheckedFirst checked by _checkedAt desc",
+    name: "sortUncheckedFirst checked by _checkedAt asc",
     fn: () => {
-      const u = { id: "u", text: "u", checked: false } as Item;
-      const a = { id: "a", text: "a", checked: true, _checkedAt: 100 } as Item;
-      const b = { id: "b", text: "b", checked: true, _checkedAt: 200 } as Item;
+      const u: Item = { id: "u", text: "u", checked: false };
+      const a: Item = { id: "a", text: "a", checked: true, _checkedAt: 100 };
+      const b: Item = { id: "b", text: "b", checked: true, _checkedAt: 200 };
       const out = sortUncheckedFirst([a, u, b]);
-      if (out.map((o) => o.id).join("") !== "ubu a".replace(/\s/g, ""))
-        throw new Error("checked order by time");
+      if (out.map((o) => o.id).join("") !== "uab")
+        throw new Error("checked order by time asc");
+    },
+  });
+
+  // 9) reorderByInsert clamps insertAt (too large)
+  tests.push({
+    name: "reorderByInsert clamps insertAt",
+    fn: () => {
+      const a: Item = { id: "a", text: "a", checked: false };
+      const b: Item = { id: "b", text: "b", checked: false };
+      const c: Item = { id: "c", text: "c", checked: false };
+      const out = reorderByInsert([a, b, c], [a.id], 99);
+      if (out.map((o) => o.id).join("") !== "bac")
+        throw new Error("clamp failed");
+    },
+  });
+
+  // 10) reorderByInsert clamps insertAt (negative)
+  tests.push({
+    name: "reorderByInsert clamps negative",
+    fn: () => {
+      const a: Item = { id: "a", text: "a", checked: false };
+      const b: Item = { id: "b", text: "b", checked: false };
+      const c: Item = { id: "c", text: "c", checked: false };
+      const out = reorderByInsert([a, b, c], [b.id], -10);
+      if (out.map((o) => o.id).join("") !== "bac")
+        throw new Error("negative clamp failed");
+    },
+  });
+
+  // 11) sortUncheckedFirst treats undefined _checkedAt as 0 (falls before larger timestamps)
+  tests.push({
+    name: "sortUncheckedFirst undefined _checkedAt treated as 0",
+    fn: () => {
+      const u: Item = { id: "u", text: "u", checked: false };
+      const a: Item = { id: "a", text: "a", checked: true }; // _checkedAt undefined -> 0
+      const b: Item = { id: "b", text: "b", checked: true, _checkedAt: 5 };
+      const out = sortUncheckedFirst([b, u, a]);
+      if (out.map((o) => o.id).join("") !== "uab")
+        throw new Error("undefined timestamp ordering");
+    },
+  });
+
+  // 12) pasteMerge empty/only newlines -> unchanged
+  tests.push({
+    name: "pasteMerge empty or newlines only",
+    fn: () => {
+      const o = "hello";
+      const { first, rest } = pasteMerge(o, 2, "\n\n\r\n");
+      if (first !== o || rest.length !== 0)
+        throw new Error("empty/newlines handling");
     },
   });
 
