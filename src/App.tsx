@@ -190,6 +190,48 @@ export default function App() {
     };
   }, []);
 
+  // ==== 共有受信 useEffect（追加点） ====
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const isSharePath = url.pathname.startsWith("/share");
+      const shared = url.searchParams.get("text");
+      if (!isSharePath || !shared || !shared.trim()) return;
+
+      // 改行で分割 → 空行除去
+      const lines = shared
+        .replace(/\r\n/g, "\n")
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      // 既存をクリアして置換（Undoできるよう履歴を積む）
+      pushHistory(state);
+      setState({
+        edit: true,
+        items: lines.map((t) => ({ id: uid(), text: t, checked: false })),
+      });
+
+      // URLを通常に戻す（リロード時の二重取込防止・任意）
+      try {
+        history.replaceState(null, "", "/");
+      } catch {}
+
+      // 最初の行にフォーカス（任意）
+      setTimeout(() => {
+        const ta = document.querySelector(
+          ".row textarea"
+        ) as HTMLTextAreaElement | null;
+        ta?.focus();
+        ta?.setSelectionRange(0, 0);
+      }, 0);
+    } catch {
+      // no-op
+    }
+    // 依存なし：起動時の一度きり
+    // eslint-disable-next-line
+  }, []);
+
   // 複数ペイン用 Refs
   const uncheckedListRef = useRef<HTMLDivElement | null>(null);
   const uncheckedWrapRef = useRef<HTMLDivElement | null>(null);
