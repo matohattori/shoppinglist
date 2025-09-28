@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 // ========================= Types & Consts =========================
 export type Item = {
@@ -11,7 +11,8 @@ export type Item = {
 };
 export type State = { edit: boolean; items: Item[] };
 
-const STORAGE_KEY = "shopping_list_v1_react";
+// 既存の単一キーをベース名に変更（listId で分岐）
+const STORAGE_KEY_BASE = "shopping_list_v1_react";
 const HISTORY_LIMIT = 10;
 const ROW_SPACING = 6; // px between rows (margin-top for rows except first)
 const ROW_H = 44; // ★ 固定タイル高さ（px）
@@ -63,19 +64,28 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 
 // 未チェック→先頭、チェックは _checkedAt の **古い順（昇順）** で下に積む（新しいほど下）
 function sortUncheckedFirst(items: Item[]) {
-  const a: Item[] = [], b: Item[] = [];
+  const a: Item[] = [],
+    b: Item[] = [];
   for (const it of items) (it.checked ? b : a).push(it);
   b.sort((x, y) => (x._checkedAt ?? 0) - (y._checkedAt ?? 0));
   return a.concat(b);
 }
 
-function reorderByInsert(items: Item[], draggingIds: string[], insertAt: number) {
+function reorderByInsert(
+  items: Item[],
+  draggingIds: string[],
+  insertAt: number
+) {
   const moving = items.filter((i) => draggingIds.includes(i.id));
   const rest = items.filter((i) => !draggingIds.includes(i.id));
   const pos = Math.max(0, Math.min(insertAt, rest.length));
   return [...rest.slice(0, pos), ...moving, ...rest.slice(pos)];
 }
-function reorderAndUncheck(items: Item[], draggingIds: string[], insertAt: number) {
+function reorderAndUncheck(
+  items: Item[],
+  draggingIds: string[],
+  insertAt: number
+) {
   const moved = new Set(draggingIds);
   return reorderByInsert(items, draggingIds, insertAt).map((it) =>
     moved.has(it.id) ? { ...it, checked: false, _selected: false } : it
@@ -92,17 +102,21 @@ export function pasteMerge(original: string, cursor: number, pasted: string) {
 }
 
 // ========================= Persist + History =========================
-function usePersistentState(initial: State) {
+// storageKey を引数で受けるように変更（listId に応じて切替）
+function usePersistentState(initial: State, storageKey: string) {
   const [state, setState] = useState<State>(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(storageKey);
       return raw ? (JSON.parse(raw) as State) : initial;
     } catch {
       return initial;
     }
   });
+
   const historyRef = useRef<string[]>([]);
   const redoRef = useRef<string[]>([]);
+  const keyRef = useRef<string>(storageKey);
+
   const pushHistory = (s: State) => {
     historyRef.current.push(JSON.stringify(s));
     if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift();
@@ -122,9 +136,26 @@ function usePersistentState(initial: State) {
     const next = redoRef.current.pop()!;
     setState(JSON.parse(next));
   };
+
+  // 現在のキーに保存
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(keyRef.current, JSON.stringify(state));
   }, [state]);
+
+  // storageKey が変わったら、そのキーから読み込み（履歴はリセット）
+  useEffect(() => {
+    if (keyRef.current === storageKey) return;
+    keyRef.current = storageKey;
+    historyRef.current = [];
+    redoRef.current = [];
+    try {
+      const raw = localStorage.getItem(storageKey);
+      setState(raw ? (JSON.parse(raw) as State) : initial);
+    } catch {
+      setState(initial);
+    }
+  }, [storageKey]);
+
   useEffect(() => {
     (window as any).__setAppState = (s: State) => setState(s);
     (window as any).__getAppState = () => state;
@@ -133,6 +164,7 @@ function usePersistentState(initial: State) {
       delete (window as any).__getAppState;
     };
   }, [state]);
+
   return { state, setState, pushHistory, undo, redo } as const;
 }
 
@@ -161,11 +193,13 @@ function useRealViewportHeight() {
 // ========================= ChecklistPage =========================
 export function ChecklistPage() {
   const nav = useNavigate();
+  const { listId } = useParams();
+  const STORAGE_KEY = `${STORAGE_KEY_BASE}:${listId ?? "default"}`;
 
-  const { state, setState, pushHistory, undo, redo } = usePersistentState({
-    edit: true,
-    items: [{ id: uid(), text: "", checked: false }],
-  });
+  const { state, setState, pushHistory, undo, redo } = usePersistentState(
+    { edit: true, items: [{ id: uid(), text: "", checked: false }] },
+    STORAGE_KEY
+  );
 
   // 100vh 問題（スマホ iframe）対策
   useRealViewportHeight();
