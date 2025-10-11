@@ -1,53 +1,52 @@
-// public/sw.js
-const CACHE = "shopping-list-cache-v1";
-const ASSETS = ["/"]; // 必要に応じて "/index.html", "/assets/..." を追加
+/* Service Worker for ShoppingList PWA
+   - Cache/route の既存実装があれば、下の fetch ハンドラに追記して併用してください（★自信なし★）
+*/
 
-self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)));
+self.addEventListener("install", (event) => {
+  self.skipWaiting();
 });
 
-self.addEventListener("activate", (e) => {
-  e.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          keys.map((k) => (k === CACHE ? undefined : caches.delete(k)))
-        )
-      )
-  );
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
 });
 
-// SPA向け：まずはネット→失敗時キャッシュ、HTMLナビゲーションは index.html にフォールバック
-self.addEventListener("fetch", (e) => {
-  const req = e.request;
-  const isNavigation = req.mode === "navigate";
+// Web Share Target: POST /share-target を受けて、共有テキストを取り出しUIトリガ
+// 参考: MDN/Chrome Docs（share_target + FormData）2
+self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+  if (url.pathname === "/share-target" && event.request.method === "POST") {
+    event.respondWith(
+      (async () => {
+        try {
+          const formData = await event.request.formData();
+          const sharedText =
+            formData.get("text") ||
+            formData.get("title") ||
+            formData.get("url") ||
+            "";
 
-  e.respondWith(
-    (async () => {
-      try {
-        const net = await fetch(req);
-        // 成功したレスポンスは静的ファイルならキャッシュ更新
-        const url = new URL(req.url);
-        if (
-          url.origin === location.origin &&
-          (url.pathname === "/" || url.pathname.startsWith("/assets/"))
-        ) {
-          const cache = await caches.open(CACHE);
-          cache.put(req, net.clone());
+          // 起動中クライアントに postMessage（即時ダイアログ用）
+          const winClients = await self.clients.matchAll({
+            type: "window",
+            includeUncontrolled: true,
+          });
+          if (winClients.length > 0) {
+            winClients[0].postMessage({
+              type: "OPEN_SHARE_IMPORT",
+              sharedText: String(sharedText),
+            });
+          }
+
+          // フォールバック：URLクエリでも誘導（新規 or 非起動時）
+          const p = new URLSearchParams({
+            "share-import": "1",
+            sharedText: String(sharedText),
+          });
+          return Response.redirect("/?" + p.toString(), 303);
+        } catch (e) {
+          return new Response("Share handling failed", { status: 500 });
         }
-        return net;
-      } catch {
-        const cache = await caches.open(CACHE);
-        if (isNavigation) {
-          // index.html フォールバック
-          const fallback = await cache.match("/");
-          if (fallback) return fallback;
-        }
-        const cached = await cache.match(req);
-        if (cached) return cached;
-        throw new Error("offline and no cache");
-      }
-    })()
-  );
+      })()
+    );
+  }
 });
