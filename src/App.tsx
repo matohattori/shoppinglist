@@ -1000,11 +1000,13 @@ export default function App() {
               aria-label={shareMode === 'new' ? '共有は新規リスト作成' : '共有は既存リストに追加'}
             >
               {shareMode === 'new' ? (
-                // 新規リスト: プラスアイコン
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                // 新規リスト: 中央に大きなスパークル（星）1つ
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M14 3L15.5 10.5C15.65 11.2 16.3 11.85 17 12L24.5 13.5L17 15C16.3 15.15 15.65 15.8 15.5 16.5L14 24L12.5 16.5C12.35 15.8 11.7 15.15 11 15L3.5 13.5L11 12C11.7 11.85 12.35 11.2 12.5 10.5L14 3Z" fill="currentColor"/>
+                </svg>
               ) : (
-                // 追加: 下矢印アイコン
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                // 追加: プラスマーク
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               )}
             </button>
             {isAndroid && shareModeToast && (
