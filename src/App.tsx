@@ -190,91 +190,51 @@ export default function App() {
     };
   }, []);
 
-  // ==== 共有受信用: 選択UIと状態 ====
-  const [shareChoiceOpen, setShareChoiceOpen] = useState(false);
-  const [pendingShare, setPendingShare] = useState<{ title?: string; text: string; url?: string } | null>(null);
+  // ==== 共有受信方法トグル ====
+  const [shareMode, setShareMode] = useState<'new' | 'append'>('new');
+  const [shareModeToast, setShareModeToast] = useState<string | null>(null);
 
-  // 共有受信時の選択UI表示
+  // Android判定
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  // 共有受信時の自動処理
   useEffect(() => {
     try {
       const url = new URL(window.location.href);
       const isSharePath = url.pathname.startsWith("/share");
       const text = url.searchParams.get("text");
-      const title = url.searchParams.get("title") || undefined;
-      const shareUrl = url.searchParams.get("url") || undefined;
       if (!isSharePath || !text || !text.trim()) return;
-      setPendingShare({ title, text, url: shareUrl });
-      setShareChoiceOpen(true);
+      // 改行で分割 → 空行除去
+      const lines = text.replace(/\r\n/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
+      pushHistory(state);
+      if (shareMode === 'new') {
+        setState({
+          edit: true,
+          items: lines.map((t) => ({ id: uid(), text: t, checked: false })),
+        });
+      } else {
+        setState(({ items, edit }) => ({
+          edit: true,
+          items: [
+            ...items,
+            ...lines.map((t) => ({ id: uid(), text: t, checked: false })),
+          ],
+        }));
+      }
+      // URLを通常に戻す
+      try {
+        history.replaceState(null, "", "/");
+      } catch {}
+      // 最初の行にフォーカス
+      setTimeout(() => {
+        const ta = document.querySelector(
+          ".row textarea"
+        ) as HTMLTextAreaElement | null;
+        ta?.focus();
+        ta?.setSelectionRange(0, 0);
+      }, 0);
     } catch {}
     // eslint-disable-next-line
-  }, []);
-
-  // 共有受信選択後の処理
-  const handleShareChoice = (mode: "new" | "append") => {
-    if (!pendingShare) return;
-    // 改行で分割 → 空行除去
-    const lines = pendingShare.text
-      .replace(/\r\n/g, "\n")
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    pushHistory(state);
-    if (mode === "new") {
-      setState({
-        edit: true,
-        items: lines.map((t) => ({ id: uid(), text: t, checked: false })),
-      });
-    } else if (mode === "append") {
-      setState(({ items, edit }) => ({
-        edit: true,
-        items: [
-          ...items,
-          ...lines.map((t) => ({ id: uid(), text: t, checked: false })),
-        ],
-      }));
-    }
-    // URLを通常に戻す
-    try {
-      history.replaceState(null, "", "/");
-    } catch {}
-    setShareChoiceOpen(false);
-    setPendingShare(null);
-    // 最初の行にフォーカス
-    setTimeout(() => {
-      const ta = document.querySelector(
-        ".row textarea"
-      ) as HTMLTextAreaElement | null;
-      ta?.focus();
-      ta?.setSelectionRange(0, 0);
-    }, 0);
-  };
-
-  // 共有受信UIモーダル
-  const ShareChoiceModal = () =>
-    shareChoiceOpen && pendingShare ? (
-      <div className="fixed inset-0 grid place-items-center" style={{background:"rgba(0,0,0,0.4)", zIndex: 9999}}>
-        <div style={{width:"min(92vw,480px)", borderRadius:16, background:"#fff", padding:16, boxShadow:"0 10px 30px rgba(0,0,0,0.15)"}}>
-          <h2 style={{fontSize:18, fontWeight:700, marginBottom:8}}>共有の取り込み方法</h2>
-          <p style={{whiteSpace:"pre-wrap", wordBreak:"break-word", fontSize:14, marginBottom:12}}>
-            {(pendingShare.title ? pendingShare.title + "\n" : "") + pendingShare.text + (pendingShare.url ? "\n" + pendingShare.url : "")}
-          </p>
-          <div style={{display:"flex", gap:8, justifyContent:"flex-end"}}>
-            <button
-              style={{padding:"8px 12px", borderRadius:8, border:"1px solid #e5e7eb", background:"#fff"}}
-              onClick={()=>{ setShareChoiceOpen(false); setPendingShare(null); }}
-            >キャンセル</button>
-            <button
-              style={{padding:"8px 12px", borderRadius:8, border:"1px solid transparent", background:"#f3f4f6"}}
-              onClick={()=>handleShareChoice("append")}
-            >既存リストに追加</button>
-            <button
-              style={{padding:"8px 12px", borderRadius:8, border:"1px solid transparent", background:"#111827", color:"#fff"}}
-              onClick={()=>handleShareChoice("new")}
-            >新規リストを作成</button>
-          </div>
-        </div>
-      </div>
-    ) : null;
+  }, [shareMode]);
 
   // 複数ペイン用 Refs
   const uncheckedListRef = useRef<HTMLDivElement | null>(null);
@@ -842,7 +802,6 @@ export default function App() {
 
   return (
     <>
-      <ShareChoiceModal />
       <div
         style={{
           display: "grid",
@@ -998,6 +957,66 @@ export default function App() {
           background: "#fff",
         }}
       >
+        {state.edit && (
+          <>
+            <button
+              onClick={() => {
+                const next = shareMode === 'new' ? 'append' : 'new';
+                setShareMode(next);
+                if (isAndroid) {
+                  setShareModeToast(next === 'new' ? '共有は新規' : '共有は追加');
+                  setTimeout(() => setShareModeToast(null), 1200);
+                }
+              }}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 10,
+                display: 'grid',
+                placeItems: 'center',
+                border: '1px solid #e5e7eb',
+                background: shareMode === 'new' ? '#2563eb' : '#f3f4f6',
+                color: shareMode === 'new' ? '#fff' : '#111',
+                fontWeight: 600,
+                fontSize: 20,
+                marginRight: 4,
+                padding: 0,
+                transition: 'background 0.2s',
+              }}
+              title={shareMode === 'new' ? '共有は新規リスト作成' : '共有は既存リストに追加'}
+              aria-label={shareMode === 'new' ? '共有は新規リスト作成' : '共有は既存リストに追加'}
+            >
+              {shareMode === 'new' ? (
+                // 新規リスト: プラスアイコン
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              ) : (
+                // 追加: 下矢印アイコン
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+              )}
+            </button>
+            {isAndroid && shareModeToast && (
+              <span
+                style={{
+                  position: 'fixed',
+                  left: '50%',
+                  bottom: 80,
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(0,0,0,0.85)',
+                  color: '#fff',
+                  borderRadius: 8,
+                  padding: '8px 20px',
+                  fontSize: 16,
+                  zIndex: 9999,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                  pointerEvents: 'none',
+                  transition: 'opacity 0.2s',
+                }}
+              >
+                {shareModeToast}
+              </span>
+            )}
+          </>
+        )}
         <button
           onClick={() => {
             primeHaptics();
