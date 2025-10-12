@@ -172,6 +172,77 @@ export default function App() {
     edit: true,
     items: [{ id: uid(), text: "", checked: false }],
   });
+  // ===== Share Target handling (選択ダイアログ) =====
+  type SharePayload = { text: string; title?: string; url?: string } | null;
+  const [pendingShare, setPendingShare] = useState<SharePayload>(null);
+  const [shareChoiceOpen, setShareChoiceOpen] = useState(false);
+
+  // /share GET params from Web Share Target (manifest.share_target) 
+  // MDN / Chrome Docs: share_target params -> title, text, url
+  // 起動時にパラメータがあればダイアログを表示
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (url.pathname === "/share") {
+        const text =
+          url.searchParams.get("text") ||
+          url.searchParams.get("body") ||
+          "";
+        const title = url.searchParams.get("title") || undefined;
+        const u = url.searchParams.get("url") || undefined;
+        if (text && text.trim().length > 0) {
+          setPendingShare({ text, title, url: u });
+          setShareChoiceOpen(true);
+        } else {
+          // payload なし: ルートへ戻す
+          url.pathname = "/";
+          url.search = "";
+          history.replaceState(null, "", url.toString());
+        }
+      }
+    } catch {}
+  }, []);
+
+  function clearShareQuery() {
+    try {
+      const url = new URL(location.href);
+      url.pathname = "/";
+      url.search = "";
+      history.replaceState(null, "", url.toString());
+    } catch {}
+  }
+
+  function parseSharedTextToItems(raw: string): Item[] {
+    const lines = raw
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .map((s) => s.replace(/^(\*|-|・|•|\d+[\.\)]|[①-⑳])\s*/, ""))
+      .filter((s) => s.length > 0);
+    return lines.map((t) => ({ id: uid(), text: t, checked: false } as Item));
+  }
+
+  function createNewListFromShare(raw: string) {
+    const items = parseSharedTextToItems(raw);
+    pushHistory(state);
+    setState({
+      edit: true,
+      items: items.length ? items : [{ id: uid(), text: "", checked: false }],
+    });
+  }
+
+  function appendShareToExistingList(raw: string) {
+    const items = parseSharedTextToItems(raw);
+    if (!items.length) return;
+    pushHistory(state);
+    setState(({ edit, items: prev }) => ({ edit, items: [...prev, ...items] }));
+  }
+
+  function finalizeShareHandling() {
+    setShareChoiceOpen(false);
+    setPendingShare(null);
+    clearShareQuery();
+  }
+
 
   // 100vh 問題（スマホ iframe）対策
   useRealViewportHeight();
@@ -188,48 +259,6 @@ export default function App() {
       body.style.height = "";
       if (root) (root as HTMLElement).style.height = "";
     };
-  }, []);
-
-  // ==== 共有受信 useEffect（追加点） ====
-  useEffect(() => {
-    try {
-      const url = new URL(window.location.href);
-      const isSharePath = url.pathname.startsWith("/share");
-      const shared = url.searchParams.get("text");
-      if (!isSharePath || !shared || !shared.trim()) return;
-
-      // 改行で分割 → 空行除去
-      const lines = shared
-        .replace(/\r\n/g, "\n")
-        .split("\n")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      // 既存をクリアして置換（Undoできるよう履歴を積む）
-      pushHistory(state);
-      setState({
-        edit: true,
-        items: lines.map((t) => ({ id: uid(), text: t, checked: false })),
-      });
-
-      // URLを通常に戻す（リロード時の二重取込防止・任意）
-      try {
-        history.replaceState(null, "", "/");
-      } catch {}
-
-      // 最初の行にフォーカス（任意）
-      setTimeout(() => {
-        const ta = document.querySelector(
-          ".row textarea"
-        ) as HTMLTextAreaElement | null;
-        ta?.focus();
-        ta?.setSelectionRange(0, 0);
-      }, 0);
-    } catch {
-      // no-op
-    }
-    // 依存なし：起動時の一度きり
-    // eslint-disable-next-line
   }, []);
 
   // 複数ペイン用 Refs
@@ -1118,7 +1147,39 @@ function Row(props: {
   }
 
   return (
-    <div
+    
+    <>
+      {shareChoiceOpen && pendingShare && (
+        <div className="fixed inset-0 grid place-items-center" style={{background:"rgba(0,0,0,0.4)", zIndex: 9999}}>
+          <div style={{width:"min(92vw,480px)", borderRadius:16, background:"#fff", padding:16, boxShadow:"0 10px 30px rgba(0,0,0,0.15)"}}>
+            <h2 style={{fontSize:18, fontWeight:700, marginBottom:8}}>共有の取り込み方法</h2>
+            <p style={{whiteSpace:"pre-wrap", wordBreak:"break-word", fontSize:14, marginBottom:12}}>
+              {(pendingShare.title ? pendingShare.title + "\n" : "") + pendingShare.text + (pendingShare.url ? "\n" + pendingShare.url : "")}
+            </p>
+            <div style={{display:"flex", gap:8, justifyContent:"flex-end"}}>
+              <button
+                style={{padding:"8px 12px", borderRadius:8, border:"1px solid #e5e7eb", background:"#fff"}}
+                onClick={()=>{ setShareChoiceOpen(false); setPendingShare(null); clearShareQuery(); }}
+              >
+                キャンセル
+              </button>
+              <button
+                style={{padding:"8px 12px", borderRadius:8, border:"1px solid transparent", background:"#f3f4f6"}}
+                onClick={()=>{ appendShareToExistingList(pendingShare.text); finalizeShareHandling(); }}
+              >
+                既存リストに追加
+              </button>
+              <button
+                style={{padding:"8px 12px", borderRadius:8, border:"1px solid transparent", background:"#111827", color:"#fff"}}
+                onClick={()=>{ createNewListFromShare(pendingShare.text); finalizeShareHandling(); }}
+              >
+                新規リストを作成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+<div
       className="row"
       data-id={item.id}
       data-index={index}
@@ -1277,6 +1338,8 @@ function Row(props: {
         </div>
       )}
     </div>
+  
+    </>
   );
 }
 
