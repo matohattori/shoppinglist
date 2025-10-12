@@ -191,7 +191,20 @@ export default function App() {
   }, []);
 
   // ==== 共有受信方法トグル ====
-  const [shareMode, setShareMode] = useState<'new' | 'append'>('new');
+  const SHARE_MODE_KEY = 'shoppinglist_share_mode';
+  const [shareMode, setShareModeState] = useState<'new' | 'append'>(() => {
+    try {
+      const saved = localStorage.getItem(SHARE_MODE_KEY);
+      if (saved === 'append' || saved === 'new') return saved;
+    } catch {}
+    return 'new';
+  });
+  const setShareMode = (mode: 'new' | 'append') => {
+    setShareModeState(mode);
+    try {
+      localStorage.setItem(SHARE_MODE_KEY, mode);
+    } catch {}
+  };
   const [shareModeToast, setShareModeToast] = useState<string | null>(null);
 
   // Android判定
