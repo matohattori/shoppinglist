@@ -190,34 +190,54 @@ export default function App() {
     };
   }, []);
 
-  // ==== 共有受信 useEffect（追加点） ====
+  // ==== 共有受信方法トグル ====
+  const SHARE_MODE_KEY = 'shoppinglist_share_mode';
+  const [shareMode, setShareModeState] = useState<'new' | 'append'>(() => {
+    try {
+      const saved = localStorage.getItem(SHARE_MODE_KEY);
+      if (saved === 'append' || saved === 'new') return saved;
+    } catch {}
+    return 'new';
+  });
+  const setShareMode = (mode: 'new' | 'append') => {
+    setShareModeState(mode);
+    try {
+      localStorage.setItem(SHARE_MODE_KEY, mode);
+    } catch {}
+  };
+  const [shareModeToast, setShareModeToast] = useState<string | null>(null);
+
+  // Android判定
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  // 共有受信時の自動処理
   useEffect(() => {
     try {
       const url = new URL(window.location.href);
       const isSharePath = url.pathname.startsWith("/share");
-      const shared = url.searchParams.get("text");
-      if (!isSharePath || !shared || !shared.trim()) return;
-
+      const text = url.searchParams.get("text");
+      if (!isSharePath || !text || !text.trim()) return;
       // 改行で分割 → 空行除去
-      const lines = shared
-        .replace(/\r\n/g, "\n")
-        .split("\n")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      // 既存をクリアして置換（Undoできるよう履歴を積む）
+      const lines = text.replace(/\r\n/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
       pushHistory(state);
-      setState({
-        edit: true,
-        items: lines.map((t) => ({ id: uid(), text: t, checked: false })),
-      });
-
-      // URLを通常に戻す（リロード時の二重取込防止・任意）
+      if (shareMode === 'new') {
+        setState({
+          edit: true,
+          items: lines.map((t) => ({ id: uid(), text: t, checked: false })),
+        });
+      } else {
+        setState(({ items, edit }) => ({
+          edit: true,
+          items: [
+            ...items,
+            ...lines.map((t) => ({ id: uid(), text: t, checked: false })),
+          ],
+        }));
+      }
+      // URLを通常に戻す
       try {
         history.replaceState(null, "", "/");
       } catch {}
-
-      // 最初の行にフォーカス（任意）
+      // 最初の行にフォーカス
       setTimeout(() => {
         const ta = document.querySelector(
           ".row textarea"
@@ -225,12 +245,9 @@ export default function App() {
         ta?.focus();
         ta?.setSelectionRange(0, 0);
       }, 0);
-    } catch {
-      // no-op
-    }
-    // 依存なし：起動時の一度きり
+    } catch {}
     // eslint-disable-next-line
-  }, []);
+  }, [shareMode]);
 
   // 複数ペイン用 Refs
   const uncheckedListRef = useRef<HTMLDivElement | null>(null);
@@ -797,25 +814,26 @@ export default function App() {
   }, []);
 
   return (
-    <div
-      style={{
-        display: "grid",
-        height: "var(--app-vh)",
-        gridTemplateRows: state.edit
-          ? `auto minmax(0,1fr) auto` /* 編集モード：未チェックが残り全量、ボタンは中身分だけ */
-          : `auto ${CHECKED_VH}vh minmax(0,1fr) auto` /* 通常：チェック済みは固定vh、未チェックは残り全量、ボタンは中身分だけ */,
-        overflow: "hidden",
-      }}
-      onPointerDown={() => {
-        primeHaptics();
-      }}
-      onMouseDown={() => {
-        primeHaptics();
-      }}
-      onTouchStart={() => {
-        primeHaptics();
-      }}
-    >
+    <>
+      <div
+        style={{
+          display: "grid",
+          height: "var(--app-vh)",
+          gridTemplateRows: state.edit
+            ? `auto minmax(0,1fr) auto`
+            : `auto ${CHECKED_VH}vh minmax(0,1fr) auto`,
+          overflow: "hidden",
+        }}
+        onPointerDown={() => {
+          primeHaptics();
+        }}
+        onMouseDown={() => {
+          primeHaptics();
+        }}
+        onTouchStart={() => {
+          primeHaptics();
+        }}
+      >
       {/* Header: Progress bar */}
       <div
         style={{
@@ -952,6 +970,68 @@ export default function App() {
           background: "#fff",
         }}
       >
+        {state.edit && (
+          <>
+            <button
+              onClick={() => {
+                const next = shareMode === 'new' ? 'append' : 'new';
+                setShareMode(next);
+                if (isAndroid) {
+                  setShareModeToast(next === 'new' ? '共有は新規' : '共有は追加');
+                  setTimeout(() => setShareModeToast(null), 1200);
+                }
+              }}
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 10,
+                display: 'grid',
+                placeItems: 'center',
+                border: '1px solid #e5e7eb',
+                background: shareMode === 'new' ? '#2563eb' : '#f3f4f6',
+                color: shareMode === 'new' ? '#fff' : '#111',
+                fontWeight: 600,
+                fontSize: 20,
+                marginRight: 4,
+                padding: 0,
+                transition: 'background 0.2s',
+              }}
+              title={shareMode === 'new' ? '共有は新規リスト作成' : '共有は既存リストに追加'}
+              aria-label={shareMode === 'new' ? '共有は新規リスト作成' : '共有は既存リストに追加'}
+            >
+              {shareMode === 'new' ? (
+                // 新規リスト: 中央に大きなスパークル（星）1つ
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M14 3L15.5 10.5C15.65 11.2 16.3 11.85 17 12L24.5 13.5L17 15C16.3 15.15 15.65 15.8 15.5 16.5L14 24L12.5 16.5C12.35 15.8 11.7 15.15 11 15L3.5 13.5L11 12C11.7 11.85 12.35 11.2 12.5 10.5L14 3Z" fill="currentColor"/>
+                </svg>
+              ) : (
+                // 追加: プラスマーク
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              )}
+            </button>
+            {isAndroid && shareModeToast && (
+              <span
+                style={{
+                  position: 'fixed',
+                  left: '50%',
+                  bottom: 80,
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(0,0,0,0.85)',
+                  color: '#fff',
+                  borderRadius: 8,
+                  padding: '8px 20px',
+                  fontSize: 16,
+                  zIndex: 9999,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                  pointerEvents: 'none',
+                  transition: 'opacity 0.2s',
+                }}
+              >
+                {shareModeToast}
+              </span>
+            )}
+          </>
+        )}
         <button
           onClick={() => {
             primeHaptics();
@@ -1035,7 +1115,8 @@ export default function App() {
           ✏︎
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
