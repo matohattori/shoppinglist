@@ -177,24 +177,17 @@ export default function App() {
   const [pendingShare, setPendingShare] = useState<SharePayload>(null);
   const [shareChoiceOpen, setShareChoiceOpen] = useState(false);
 
-  // /share GET params from Web Share Target (manifest.share_target) 
-  // MDN / Chrome Docs: share_target params -> title, text, url
-  // 起動時にパラメータがあればダイアログを表示
   useEffect(() => {
     try {
       const url = new URL(window.location.href);
       if (url.pathname === "/share") {
-        const text =
-          url.searchParams.get("text") ||
-          url.searchParams.get("body") ||
-          "";
+        const text = url.searchParams.get("text") || url.searchParams.get("body") || "";
         const title = url.searchParams.get("title") || undefined;
         const u = url.searchParams.get("url") || undefined;
         if (text && text.trim().length > 0) {
           setPendingShare({ text, title, url: u });
           setShareChoiceOpen(true);
         } else {
-          // payload なし: ルートへ戻す
           url.pathname = "/";
           url.search = "";
           history.replaceState(null, "", url.toString());
@@ -212,22 +205,15 @@ export default function App() {
     } catch {}
   }
 
-  function parseSharedTextToItems(raw: string): Item[] {
-    const lines = raw
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .map((s) => s.replace(/^(\*|-|・|•|\d+[\.\)]|[①-⑳])\s*/, ""))
-      .filter((s) => s.length > 0);
-    return lines.map((t) => ({ id: uid(), text: t, checked: false } as Item));
+  function parseSharedTextToItems(raw: string) {
+    const lines = raw.split(/\r?\n/).map(s=>s.trim()).map(s=>s.replace(/^(\*|-|・|•|\d+[\.\)]|[①-⑳])\s*/, "")).filter(s=>s.length>0);
+    return lines.map(t => ({ id: uid(), text: t, checked: false }));
   }
 
   function createNewListFromShare(raw: string) {
     const items = parseSharedTextToItems(raw);
     pushHistory(state);
-    setState({
-      edit: true,
-      items: items.length ? items : [{ id: uid(), text: "", checked: false }],
-    });
+    setState({ edit: true, items: items.length ? items : [{ id: uid(), text: "", checked: false }] });
   }
 
   function appendShareToExistingList(raw: string) {
