@@ -190,47 +190,91 @@ export default function App() {
     };
   }, []);
 
-  // ==== 共有受信 useEffect（追加点） ====
+  // ==== 共有受信用: 選択UIと状態 ====
+  const [shareChoiceOpen, setShareChoiceOpen] = useState(false);
+  const [pendingShare, setPendingShare] = useState<{ title?: string; text: string; url?: string } | null>(null);
+
+  // 共有受信時の選択UI表示
   useEffect(() => {
     try {
       const url = new URL(window.location.href);
       const isSharePath = url.pathname.startsWith("/share");
-      const shared = url.searchParams.get("text");
-      if (!isSharePath || !shared || !shared.trim()) return;
+      const text = url.searchParams.get("text");
+      const title = url.searchParams.get("title") || undefined;
+      const shareUrl = url.searchParams.get("url") || undefined;
+      if (!isSharePath || !text || !text.trim()) return;
+      setPendingShare({ title, text, url: shareUrl });
+      setShareChoiceOpen(true);
+    } catch {}
+    // eslint-disable-next-line
+  }, []);
 
-      // 改行で分割 → 空行除去
-      const lines = shared
-        .replace(/\r\n/g, "\n")
-        .split("\n")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      // 既存をクリアして置換（Undoできるよう履歴を積む）
-      pushHistory(state);
+  // 共有受信選択後の処理
+  const handleShareChoice = (mode: "new" | "append") => {
+    if (!pendingShare) return;
+    // 改行で分割 → 空行除去
+    const lines = pendingShare.text
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    pushHistory(state);
+    if (mode === "new") {
       setState({
         edit: true,
         items: lines.map((t) => ({ id: uid(), text: t, checked: false })),
       });
-
-      // URLを通常に戻す（リロード時の二重取込防止・任意）
-      try {
-        history.replaceState(null, "", "/");
-      } catch {}
-
-      // 最初の行にフォーカス（任意）
-      setTimeout(() => {
-        const ta = document.querySelector(
-          ".row textarea"
-        ) as HTMLTextAreaElement | null;
-        ta?.focus();
-        ta?.setSelectionRange(0, 0);
-      }, 0);
-    } catch {
-      // no-op
+    } else if (mode === "append") {
+      setState(({ items, edit }) => ({
+        edit: true,
+        items: [
+          ...items,
+          ...lines.map((t) => ({ id: uid(), text: t, checked: false })),
+        ],
+      }));
     }
-    // 依存なし：起動時の一度きり
-    // eslint-disable-next-line
-  }, []);
+    // URLを通常に戻す
+    try {
+      history.replaceState(null, "", "/");
+    } catch {}
+    setShareChoiceOpen(false);
+    setPendingShare(null);
+    // 最初の行にフォーカス
+    setTimeout(() => {
+      const ta = document.querySelector(
+        ".row textarea"
+      ) as HTMLTextAreaElement | null;
+      ta?.focus();
+      ta?.setSelectionRange(0, 0);
+    }, 0);
+  };
+
+  // 共有受信UIモーダル
+  const ShareChoiceModal = () =>
+    shareChoiceOpen && pendingShare ? (
+      <div className="fixed inset-0 grid place-items-center" style={{background:"rgba(0,0,0,0.4)", zIndex: 9999}}>
+        <div style={{width:"min(92vw,480px)", borderRadius:16, background:"#fff", padding:16, boxShadow:"0 10px 30px rgba(0,0,0,0.15)"}}>
+          <h2 style={{fontSize:18, fontWeight:700, marginBottom:8}}>共有の取り込み方法</h2>
+          <p style={{whiteSpace:"pre-wrap", wordBreak:"break-word", fontSize:14, marginBottom:12}}>
+            {(pendingShare.title ? pendingShare.title + "\n" : "") + pendingShare.text + (pendingShare.url ? "\n" + pendingShare.url : "")}
+          </p>
+          <div style={{display:"flex", gap:8, justifyContent:"flex-end"}}>
+            <button
+              style={{padding:"8px 12px", borderRadius:8, border:"1px solid #e5e7eb", background:"#fff"}}
+              onClick={()=>{ setShareChoiceOpen(false); setPendingShare(null); }}
+            >キャンセル</button>
+            <button
+              style={{padding:"8px 12px", borderRadius:8, border:"1px solid transparent", background:"#f3f4f6"}}
+              onClick={()=>handleShareChoice("append")}
+            >既存リストに追加</button>
+            <button
+              style={{padding:"8px 12px", borderRadius:8, border:"1px solid transparent", background:"#111827", color:"#fff"}}
+              onClick={()=>handleShareChoice("new")}
+            >新規リストを作成</button>
+          </div>
+        </div>
+      </div>
+    ) : null;
 
   // 複数ペイン用 Refs
   const uncheckedListRef = useRef<HTMLDivElement | null>(null);
@@ -797,25 +841,27 @@ export default function App() {
   }, []);
 
   return (
-    <div
-      style={{
-        display: "grid",
-        height: "var(--app-vh)",
-        gridTemplateRows: state.edit
-          ? `auto minmax(0,1fr) auto` /* 編集モード：未チェックが残り全量、ボタンは中身分だけ */
-          : `auto ${CHECKED_VH}vh minmax(0,1fr) auto` /* 通常：チェック済みは固定vh、未チェックは残り全量、ボタンは中身分だけ */,
-        overflow: "hidden",
-      }}
-      onPointerDown={() => {
-        primeHaptics();
-      }}
-      onMouseDown={() => {
-        primeHaptics();
-      }}
-      onTouchStart={() => {
-        primeHaptics();
-      }}
-    >
+    <>
+      <ShareChoiceModal />
+      <div
+        style={{
+          display: "grid",
+          height: "var(--app-vh)",
+          gridTemplateRows: state.edit
+            ? `auto minmax(0,1fr) auto`
+            : `auto ${CHECKED_VH}vh minmax(0,1fr) auto`,
+          overflow: "hidden",
+        }}
+        onPointerDown={() => {
+          primeHaptics();
+        }}
+        onMouseDown={() => {
+          primeHaptics();
+        }}
+        onTouchStart={() => {
+          primeHaptics();
+        }}
+      >
       {/* Header: Progress bar */}
       <div
         style={{
@@ -1035,7 +1081,8 @@ export default function App() {
           ✏︎
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
