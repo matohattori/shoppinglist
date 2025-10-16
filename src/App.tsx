@@ -273,10 +273,28 @@ export default function App() {
       const lines = text.replace(/\r\n/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
       pushHistory(state);
       if (shareMode === 'new') {
+        // 現在のリストにアイテムがある場合は保存ボックスに保存
+        const validItems = state.items.filter((it: Item) => it.text.trim() !== "");
+        if (validItems.length > 0) {
+          try {
+            const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
+            const box = boxRaw ? JSON.parse(boxRaw) : [];
+            const title = getNowString();
+            const entry = {
+              id: uid(),
+              title,
+              savedAt: Date.now(),
+              items: validItems,
+            };
+            box.unshift(entry);
+            localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+          } catch {}
+        }
         setState({
           edit: true,
           items: lines.map((t) => ({ id: uid(), text: t, checked: false })),
         });
+        setCurrentStorageBoxId(null);
       } else {
         setState(({ items, edit }) => ({
           edit: true,
@@ -538,6 +556,36 @@ export default function App() {
   useEffect(
     () => () => {
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    },
+    []
+  );
+
+  // 保存ボックス削除（二段階）
+  const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
+  const deleteTimerRef = useRef<number | null>(null);
+  const [storageBoxRefreshKey, setStorageBoxRefreshKey] = useState(0);
+  const armDelete = (id: string) => {
+    setDeleteArmedId(id);
+    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+    deleteTimerRef.current = window.setTimeout(
+      () => setDeleteArmedId(null),
+      ARM_TIMEOUT_MS
+    );
+  };
+  const doDelete = (id: string) => {
+    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
+    const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
+    if (!boxRaw) return;
+    let box = JSON.parse(boxRaw);
+    box = box.filter((b: any) => b.id !== id);
+    localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+    setDeleteArmedId(null);
+    // 再レンダリングを強制するためにキーを更新
+    setStorageBoxRefreshKey(prev => prev + 1);
+  };
+  useEffect(
+    () => () => {
+      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
     },
     []
   );
@@ -897,6 +945,7 @@ export default function App() {
       {/* 保存ボックスモーダル */}
       {showStorageBox && (
         <div
+          key={storageBoxRefreshKey}
           style={{
             position: 'fixed',
             top: 0, left: 0, right: 0, bottom: 0,
@@ -988,29 +1037,35 @@ export default function App() {
                   <button
                     onClick={e => {
                       e.stopPropagation();
-                      const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
-                      if (!boxRaw) return;
-                      let box = JSON.parse(boxRaw);
-                      box = box.filter((b: any) => b.id !== entry.id);
-                      localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
-                      setShowStorageBox(false); // 一度閉じて再表示で反映
-                      setTimeout(() => setShowStorageBox(true), 0);
+                      const isArmed = deleteArmedId === entry.id;
+                      if (isArmed) {
+                        doDelete(entry.id);
+                      } else {
+                        armDelete(entry.id);
+                      }
                     }}
-                    title="このリストを削除"
-                    aria-label="このリストを削除"
+                    title={deleteArmedId === entry.id ? "削除を実行" : "このリストを削除"}
+                    aria-label={deleteArmedId === entry.id ? "削除を実行" : "このリストを削除"}
                     style={{
-                      background: 'none',
-                      border: 'none',
+                      background: deleteArmedId === entry.id ? '#ef4444' : 'none',
+                      border: deleteArmedId === entry.id ? '1px solid #ef4444' : 'none',
                       cursor: 'pointer',
-                      padding: 4,
+                      padding: deleteArmedId === entry.id ? '4px 8px' : 4,
                       marginLeft: 4,
-                      color: '#e11d48',
+                      color: deleteArmedId === entry.id ? '#fff' : '#e11d48',
                       display: 'flex',
                       alignItems: 'center',
+                      borderRadius: 6,
+                      fontWeight: deleteArmedId === entry.id ? 600 : 'normal',
+                      fontSize: deleteArmedId === entry.id ? 12 : undefined,
                     }}
                   >
-                    {/* ×マークピクトグラム */}
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    {deleteArmedId === entry.id ? (
+                      'DELETE'
+                    ) : (
+                      /* ×マークピクトグラム */
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    )}
                   </button>
                 </div>
               ))}
