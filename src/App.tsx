@@ -563,6 +563,7 @@ export default function App() {
   // 保存ボックス削除（二段階）
   const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
   const deleteTimerRef = useRef<number | null>(null);
+  // 保存ボックスの再レンダリング用キー（削除後のリスト更新に使用）
   const [storageBoxRefreshKey, setStorageBoxRefreshKey] = useState(0);
   const armDelete = (id: string) => {
     setDeleteArmedId(id);
