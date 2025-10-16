@@ -563,6 +563,7 @@ export default function App() {
   // 保存ボックス削除（二段階）
   const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
   const deleteTimerRef = useRef<number | null>(null);
+  const [storageBoxRefreshKey, setStorageBoxRefreshKey] = useState(0);
   const armDelete = (id: string) => {
     setDeleteArmedId(id);
     if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
@@ -579,8 +580,8 @@ export default function App() {
     box = box.filter((b: any) => b.id !== id);
     localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
     setDeleteArmedId(null);
-    setShowStorageBox(false); // 一度閉じて再表示で反映
-    setTimeout(() => setShowStorageBox(true), 0);
+    // 再レンダリングを強制するためにキーを更新
+    setStorageBoxRefreshKey(prev => prev + 1);
   };
   useEffect(
     () => () => {
@@ -944,6 +945,7 @@ export default function App() {
       {/* 保存ボックスモーダル */}
       {showStorageBox && (
         <div
+          key={storageBoxRefreshKey}
           style={{
             position: 'fixed',
             top: 0, left: 0, right: 0, bottom: 0,
