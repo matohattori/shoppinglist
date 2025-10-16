@@ -168,10 +168,63 @@ function useRealViewportHeight() {
 
 // ========================= App =========================
 export default function App() {
-  const { state, setState, pushHistory, undo, redo } = usePersistentState({
-    edit: true,
-    items: [{ id: uid(), text: "", checked: false }],
+  // 新規リスト作成用
+  const handleNewList = () => {
+    setState({ edit: true, items: [{ id: uid(), text: "", checked: false }] });
+    setCurrentStorageBoxId(null);
+  };
+  // 保存完了表示用
+  const [saveDone, setSaveDone] = useState(false);
+  // 現在編集中の保存ボックスID（nullなら通常リスト）
+  const [currentStorageBoxId, setCurrentStorageBoxId] = useState<string | null>(null);
+  // 保存ボックスモーダル表示状態
+  const LAST_VIEW_KEY = "shoppinglist2_lastview";
+  const [showStorageBox, setShowStorageBox] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LAST_VIEW_KEY);
+      if (raw) {
+        const obj = JSON.parse(raw);
+        return !!obj.showStorageBox;
+      }
+    } catch {}
+    return false;
   });
+  // 保存ボックス一覧取得
+  function getStorageBoxList() {
+    try {
+      const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
+      return boxRaw ? JSON.parse(boxRaw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  // state初期値もlastviewから復元
+  const { state, setState, pushHistory, undo, redo } = usePersistentState((() => {
+    try {
+      const raw = localStorage.getItem(LAST_VIEW_KEY);
+      if (raw) {
+        const obj = JSON.parse(raw);
+        if (obj.items && Array.isArray(obj.items)) {
+          return {
+            edit: typeof obj.edit === 'boolean' ? obj.edit : true,
+            items: obj.items,
+          };
+        }
+      }
+    } catch {}
+    return { edit: true, items: [{ id: uid(), text: "", checked: false }] };
+  })());
+  // showStorageBox, state.edit, state.items を変更のたび保存
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_VIEW_KEY, JSON.stringify({
+        showStorageBox,
+        edit: state.edit,
+        items: state.items,
+      }));
+    } catch {}
+  }, [showStorageBox, state.edit, state.items]);
 
   // 100vh 問題（スマホ iframe）対策
   useRealViewportHeight();
@@ -317,42 +370,56 @@ export default function App() {
 
   // タイピング単位（Undo/Redo用）
   const typingRef = useRef<{ active: boolean }>({ active: false });
+
+  // チェック状態をトグルする
+  const toggleCheckedById = (id: string) => {
+    setState((prev: State) => ({
+      ...prev,
+      items: prev.items.map((it) =>
+        it.id === id ? { ...it, checked: !it.checked } : it
+      ),
+    }));
+  };
+
+  // タイピング終了処理
+  const endTyping = () => {
+    typingRef.current.active = false;
+  };
+
   const beginTypingIfNeeded = () => {
     if (!typingRef.current.active) {
       pushHistory(state);
       typingRef.current.active = true;
     }
   };
-  const endTyping = () => {
-    typingRef.current.active = false;
-  };
-
-  // 編集OFFで空白行を削除
-  useEffect(() => {
-    if (!state.edit) {
-      const cleaned = state.items.filter((it) => it.text.trim() !== "");
-      if (cleaned.length !== state.items.length)
-        setState({ edit: state.edit, items: cleaned });
+  const onSave = () => {
+    try {
+      // 空リストは保存しない
+      const validItems = state.items.filter((it: Item) => it.text.trim() !== "");
+      if (!validItems.length) {
+        alert("空のリストは保存できません");
+        return;
+      }
+      const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
+      const box = boxRaw ? JSON.parse(boxRaw) : [];
+      // タイトル自動生成
+      const title = getNowString();
+      const entry = {
+        id: uid(),
+        title,
+        savedAt: Date.now(),
+        items: validItems,
+      };
+      box.unshift(entry); // 先頭に追加
+      localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+      setCurrentStorageBoxId(entry.id); // 保存直後はこのリストを編集中とみなす
+      setSaveDone(true);
+      setTimeout(() => setSaveDone(false), 1000); // 1秒で戻す
+    } catch (e) {
+      alert("保存に失敗しました: " + e);
     }
-  }, [state.edit]);
-
-  // ソフトキーボード余白（全体スクロールは無し）
-  useEffect(() => {
-    const vv = (window as any).visualViewport as VisualViewport | undefined;
-    const apply = () => {
-      const pad = vv ? Math.max(0, window.innerHeight - vv.height) : 0;
-      document.documentElement.style.setProperty("--kbd-pad", pad + "px");
-    };
-    vv?.addEventListener("resize", apply);
-    vv?.addEventListener("scroll", apply);
-    window.addEventListener("resize", apply);
-    apply();
-    return () => {
-      vv?.removeEventListener("resize", apply);
-      vv?.removeEventListener("scroll", apply);
-      window.removeEventListener("resize", apply);
-    };
-  }, []);
+  };
+  // ...existing code...
 
   // 画面全体スクロール抑止
   useEffect(() => {
@@ -406,59 +473,28 @@ export default function App() {
   // ===== Row ops =====
   const setItemTextById = (id: string, text: string) => {
     beginTypingIfNeeded();
-    setState(({ items, edit }) => ({
-      edit,
-      items: items.map((it) => (it.id === id ? { ...it, text } : it)),
+    setState((prev: State) => ({
+      edit: prev.edit,
+      items: prev.items.map((it: Item) => (it.id === id ? { ...it, text } : it)),
     }));
-  };
-
-  const toggleCheckedById = (id: string) => {
-    if (state.edit) return; // 非編集のみ
-    const wasChecked = !!state.items.find((it) => it.id === id)?.checked;
-    const nextItems = state.items.map((it) =>
-      it.id === id
-        ? it.checked
-          ? { ...it, checked: false, _checkedAt: undefined }
-          : { ...it, checked: true, _checkedAt: Date.now() }
-        : it
-    );
-    const willAllChecked =
-      nextItems.length > 0 && nextItems.every((it) => it.checked);
-    vibrateNow(1);
-    if (willAllChecked) vibrateNow([50, 50, 50]);
-    const madeChecked = !wasChecked;
-    pushHistory(state);
-    setState(({ edit }) => ({ edit, items: nextItems }));
-    if (madeChecked && !state.edit) {
-      requestAnimationFrame(() => {
-        const w = checkedWrapRef.current;
-        if (!w) return;
-        try {
-          w.scrollTo({ top: w.scrollHeight, behavior: "smooth" });
-          setTimeout(() => {
-            w.scrollTo({ top: w.scrollHeight, behavior: "smooth" });
-          }, 60);
-        } catch {}
-      });
-    }
   };
 
   const toggleSelected = (id: string, v: boolean) => {
     if (!state.edit) return;
     pushHistory(state);
-    setState(({ items, edit }) => ({
-      edit,
-      items: items.map((it) => (it.id === id ? { ...it, _selected: v } : it)),
+    setState((prev: State) => ({
+      edit: prev.edit,
+      items: prev.items.map((it: Item) => (it.id === id ? { ...it, _selected: v } : it)),
     }));
   };
 
   const insertEmptyAfterId = (id: string) => {
     if (!state.edit) return;
     pushHistory(state);
-    setState(({ items, edit }) => {
-      const pos = items.findIndex((it) => it.id === id);
-      if (pos < 0) return { edit, items };
-      const next = [...items];
+    setState((prev: State) => {
+      const pos = prev.items.findIndex((it: Item) => it.id === id);
+      if (pos < 0) return { edit: prev.edit, items: prev.items };
+      const next = [...prev.items];
       const newItem = { id: uid(), text: "", checked: false };
       next.splice(pos + 1, 0, newItem);
       setTimeout(() => {
@@ -468,16 +504,16 @@ export default function App() {
         ta?.focus();
         ta?.setSelectionRange(0, 0);
       }, 0);
-      return { edit, items: next };
+      return { edit: prev.edit, items: next };
     });
   };
 
   const deleteItem = (id: string) => {
     if (!state.edit) return;
     pushHistory(state);
-    setState(({ items, edit }) => ({
-      edit,
-      items: items.filter((it) => it.id !== id),
+    setState((prev: State) => ({
+      edit: prev.edit,
+      items: prev.items.filter((it: Item) => it.id !== id),
     }));
   };
 
@@ -813,8 +849,175 @@ export default function App() {
     if (r.failed) console.warn("[Tests] Failed:", r.failures);
   }, []);
 
+  // 保存ボタン・保存ボックスボタンのクリックハンドラ
+  const STORAGEBOX_KEY = "shoppinglist2_storagebox";
+  function z2(n: number) { return (n < 10 ? '0' : '') + n; }
+  function getNowString() {
+    const d = new Date();
+    return (
+      d.getFullYear() +
+      '-' + z2(d.getMonth() + 1) +
+      '-' + z2(d.getDate()) +
+      ' ' + z2(d.getHours()) +
+      ':' + z2(d.getMinutes())
+    );
+  }
+  // (duplicate onSave removed)
+  const onOpenStorageBox = () => {
+    setShowStorageBox(true);
+  };
+
+  // 保存ボックスリストの自動保存
+  useEffect(() => {
+    if (!currentStorageBoxId) return;
+    // 現在のリストが保存ボックスのどれかと一致する場合のみ
+    try {
+      const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
+      if (!boxRaw) return;
+      const box = JSON.parse(boxRaw);
+      const idx = box.findIndex((e: any) => e.id === currentStorageBoxId);
+      if (idx === -1) return;
+      // itemsが違う場合のみ更新
+      const curItems = state.items.filter((it: Item) => it.text.trim() !== "");
+      const prevItems = box[idx].items || [];
+      // 比較: 長さ or どれかの内容が違う
+      const isDiff = curItems.length !== prevItems.length || curItems.some((it: Item, i: number) => {
+        const p = prevItems[i];
+        return !p || p.text !== it.text || p.checked !== it.checked;
+      });
+      if (isDiff) {
+        box[idx] = { ...box[idx], items: curItems, savedAt: Date.now() };
+        localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+      }
+    } catch {}
+  }, [state.items, currentStorageBoxId]);
+
   return (
     <>
+      {/* 保存ボックスモーダル */}
+      {showStorageBox && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.25)',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onClick={e => {
+            // モーダル外クリックで閉じる
+            if (e.target === e.currentTarget) setShowStorageBox(false);
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 16,
+              minWidth: 320,
+              maxWidth: 420,
+              width: '90vw',
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              padding: 20,
+              position: 'relative',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{display:'flex',justifyContent:'center',alignItems:'center',margin:'0 0 16px 0'}}>
+              {/* 保存ボックスボタンと同じピクトグラム */}
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f59e42" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{display:'block'}}><rect x="3" y="3" width="18" height="4" rx="2"/><path d="M3 7v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7"/><path d="M16 10l-4 4-4-4"/></svg>
+            </div>
+            <div style={{display: 'flex', flexDirection: 'column', gap: 12}}>
+              {getStorageBoxList().length === 0 && (
+                <div style={{color: '#888', textAlign: 'center'}}>保存されたリストはありません</div>
+              )}
+              {[...getStorageBoxList()].sort((a, b) => b.savedAt - a.savedAt).map((entry: any) => (
+                <div
+                  key={entry.id}
+                  style={{
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    background: '#f8fafc',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <div
+                    style={{ flex: 1, cursor: 'pointer' }}
+                    onClick={() => {
+                      setState({ edit: true, items: entry.items });
+                      setCurrentStorageBoxId(entry.id);
+                      setShowStorageBox(false);
+                    }}
+                    title="このリストを表示"
+                  >
+                    <div style={{fontWeight: 600, fontSize: 16, marginBottom: 4}}>
+                      {/* 最終更新日時のみ表示 */}
+                      {(() => {
+                        const d = new Date(entry.savedAt);
+                        const z2 = (n: number) => (n < 10 ? '0' : '') + n;
+                        return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
+                      })()}
+                    </div>
+                    <div style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6}}>
+                      {entry.items.slice(0, 4).map((it: any, idx: number) => (
+                        <span key={idx} style={{
+                          background: '#fff',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: 6,
+                          padding: '2px 8px',
+                          marginRight: 2,
+                          maxWidth: 100,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block',
+                        }}>{it.text}</span>
+                      ))}
+                      {entry.items.length > 4 && <span style={{color: '#aaa'}}>…</span>}
+                    </div>
+                  </div>
+                  {/* 削除ボタン */}
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
+                      if (!boxRaw) return;
+                      let box = JSON.parse(boxRaw);
+                      box = box.filter((b: any) => b.id !== entry.id);
+                      localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+                      setShowStorageBox(false); // 一度閉じて再表示で反映
+                      setTimeout(() => setShowStorageBox(true), 0);
+                    }}
+                    title="このリストを削除"
+                    aria-label="このリストを削除"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: 4,
+                      marginLeft: 4,
+                      color: '#e11d48',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    {/* ×マークピクトグラム */}
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <div
         style={{
           display: "grid",
@@ -834,7 +1037,7 @@ export default function App() {
           primeHaptics();
         }}
       >
-      {/* Header: Progress bar */}
+      {/* Header: Progress bar + 保存ボタン群 */}
       <div
         style={{
           position: "sticky",
@@ -844,36 +1047,112 @@ export default function App() {
           borderBottom: "1px solid #e5e7eb",
         }}
       >
-        <div style={{ padding: "10px 12px 8px" }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              marginBottom: 6,
-            }}
-          >
-            <div style={{ fontSize: 12, color: "#6b7280" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px 8px" }}>
+          {/* Progress info */}
+          <div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
               {stats.done} / {stats.total} ({stats.pct}%)
             </div>
-          </div>
-          <div
-            aria-label="progress"
-            style={{
-              height: 8,
-              borderRadius: 999,
-              background: "#f1f5f9",
-              overflow: "hidden",
-              boxShadow: "inset 0 0 0 1px #e5e7eb",
-            }}
-          >
             <div
+              aria-label="progress"
               style={{
-                width: `${stats.pct}%`,
-                height: "100%",
-                background: "linear-gradient(90deg,#93c5fd,#2563eb)",
-                transition: "width .18s ease",
+                height: 8,
+                borderRadius: 999,
+                background: "#f1f5f9",
+                overflow: "hidden",
+                boxShadow: "inset 0 0 0 1px #e5e7eb",
+                minWidth: 220,
+                maxWidth: 340,
+                width: '100%',
+                marginRight: 16,
               }}
-            />
+            >
+              <div
+                style={{
+                  width: `${stats.pct}%`,
+                  height: "100%",
+                  background: "linear-gradient(90deg,#93c5fd,#2563eb)",
+                  transition: "width .18s ease",
+                }}
+              />
+            </div>
+          </div>
+          {/* 保存ボタン群 */}
+          <div style={{ display: "flex", gap: 8 }}>
+            {/* 新規リストボタン */}
+            <button
+              onClick={() => {
+                setState((prev: State) => ({
+                  ...prev,
+                  items: [{ id: uid(), text: "", checked: false }],
+                  edit: true,
+                }));
+                setCurrentStorageBoxId(null);
+              }}
+              title="新規リスト"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#fff",
+                display: "grid",
+                placeItems: "center",
+                fontSize: 20,
+                padding: 0,
+                cursor: "pointer",
+              }}
+              aria-label="新規リスト"
+            >
+              {/* プラスアイコン */}
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            </button>
+            <button
+              onClick={onSave}
+              title="リストを保存"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#fff",
+                display: "grid",
+                placeItems: "center",
+                fontSize: 20,
+                padding: 0,
+                cursor: "pointer",
+                transition: 'color 0.2s',
+                color: saveDone ? '#22c55e' : undefined,
+              }}
+              aria-label="リストを保存"
+            >
+              {/* 保存完了時はチェックマーク、それ以外はフロッピーディスク */}
+              {saveDone ? (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9.5 17 4 11.5"/></svg>
+              ) : (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              )}
+            </button>
+            <button
+              onClick={onOpenStorageBox}
+              title="保存ボックスを開く"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#fff",
+                display: "grid",
+                placeItems: "center",
+                fontSize: 20,
+                padding: 0,
+                cursor: "pointer",
+              }}
+              aria-label="保存ボックスを開く"
+            >
+              {/* アーカイブ/ボックス風アイコン */}
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e42" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="4" rx="2"/><path d="M3 7v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7"/><path d="M16 10l-4 4-4-4"/></svg>
+            </button>
           </div>
         </div>
       </div>
