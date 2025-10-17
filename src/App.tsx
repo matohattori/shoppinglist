@@ -590,35 +590,7 @@ export default function App() {
     []
   );
 
-  // 保存ボックス削除（二段階）
-  const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
-  const deleteTimerRef = useRef<number | null>(null);
   const [storageBoxRefreshKey, setStorageBoxRefreshKey] = useState(0);
-  const armDelete = (id: string) => {
-    setDeleteArmedId(id);
-    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-    deleteTimerRef.current = window.setTimeout(
-      () => setDeleteArmedId(null),
-      ARM_TIMEOUT_MS
-    );
-  };
-  const doDelete = (id: string) => {
-    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-    const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
-    if (!boxRaw) return;
-    let box = JSON.parse(boxRaw);
-    box = box.filter((b: any) => b.id !== id);
-    localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
-    setDeleteArmedId(null);
-    // 再レンダリングを強制するためにキーを更新
-    setStorageBoxRefreshKey(prev => prev + 1);
-  };
-  useEffect(
-    () => () => {
-      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-    },
-    []
-  );
 
   // ===== DnD（未チェック側のみ） =====
   const onPointerDownHandle = (
@@ -1014,92 +986,24 @@ export default function App() {
                 <div style={{color: '#888', textAlign: 'center'}}>保存されたリストはありません</div>
               )}
               {[...getStorageBoxList()].sort((a, b) => b.savedAt - a.savedAt).map((entry: any) => (
-                <div
+                <StorageBoxListItem
                   key={entry.id}
-                  style={{
-                    border: '1px solid #e5e7eb',
-                    borderRadius: 10,
-                    padding: '10px 12px',
-                    background: '#f8fafc',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
+                  entry={entry}
+                  onLoad={() => {
+                    saveCurrentListToBox();
+                    setState({ edit: true, items: entry.items });
+                    setCurrentStorageBoxId(entry.id);
+                    setShowStorageBox(false);
                   }}
-                >
-                  <div
-                    style={{ flex: 1, cursor: 'pointer' }}
-                    onClick={() => {
-                      // 既存リストを保存ボックスに保存してから読み込む
-                      saveCurrentListToBox();
-                      setState({ edit: true, items: entry.items });
-                      setCurrentStorageBoxId(entry.id);
-                      setShowStorageBox(false);
-                    }}
-                    title="このリストを表示"
-                  >
-                    <div style={{fontWeight: 600, fontSize: 16, marginBottom: 4}}>
-                      {/* 最終更新日時のみ表示 */}
-                      {(() => {
-                        const d = new Date(entry.savedAt);
-                        const z2 = (n: number) => (n < 10 ? '0' : '') + n;
-                        return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
-                      })()}
-                    </div>
-                    <div style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6}}>
-                      {entry.items.slice(0, 4).map((it: any, idx: number) => (
-                        <span key={idx} style={{
-                          background: '#fff',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: 6,
-                          padding: '2px 8px',
-                          marginRight: 2,
-                          maxWidth: 100,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          display: 'inline-block',
-                        }}>{it.text}</span>
-                      ))}
-                      {entry.items.length > 4 && <span style={{color: '#aaa'}}>…</span>}
-                    </div>
-                  </div>
-                  {/* 削除ボタン */}
-                  <button
-                    onClick={e => {
-                      e.stopPropagation();
-                      const isArmed = deleteArmedId === entry.id;
-                      if (isArmed) {
-                        doDelete(entry.id);
-                      } else {
-                        armDelete(entry.id);
-                      }
-                    }}
-                    title={deleteArmedId === entry.id ? "削除を実行" : "このリストを削除"}
-                    aria-label={deleteArmedId === entry.id ? "削除を実行" : "このリストを削除"}
-                    style={{
-                      background: deleteArmedId === entry.id ? '#ef4444' : 'none',
-                      border: deleteArmedId === entry.id ? '1px solid #ef4444' : 'none',
-                      cursor: 'pointer',
-                      padding: deleteArmedId === entry.id ? '4px 8px' : 4,
-                      marginLeft: 4,
-                      color: deleteArmedId === entry.id ? '#fff' : '#e11d48',
-                      display: 'flex',
-                      alignItems: 'center',
-                      borderRadius: 6,
-                      fontWeight: deleteArmedId === entry.id ? 600 : 'normal',
-                      fontSize: deleteArmedId === entry.id ? 12 : undefined,
-                    }}
-                  >
-                    {deleteArmedId === entry.id ? (
-                      'DELETE'
-                    ) : (
-                      /* ×マークピクトグラム */
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    )}
-                  </button>
-                </div>
+                  onDelete={() => {
+                    const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
+                    if (!boxRaw) return;
+                    let box = JSON.parse(boxRaw);
+                    box = box.filter((b: any) => b.id !== entry.id);
+                    localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+                    setStorageBoxRefreshKey(prev => prev + 1);
+                  }}
+                />
               ))}
             </div>
           </div>
@@ -1494,6 +1398,9 @@ function Row(props: {
 }) {
   const { item, index, edit, allCheckedBlue } = props;
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const [swipeX, setSwipeX] = useState(0);
+  const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const SWIPE_DELETE_THRESHOLD = 120; // px to trigger delete
   // 固定行高に合わせる（自己伸長はしない・垂直中央）
   useEffect(() => {
     const ta = taRef.current;
@@ -1504,6 +1411,37 @@ function Row(props: {
     ta.style.lineHeight = innerH + "px"; // テキストを垂直中央に
     ta.style.fontSize = "16px";
   }, [item.text, edit]);
+
+  // Swipe handlers
+  const handleSwipeStart = (e: React.PointerEvent) => {
+    if (!edit || item.checked) return;
+    swipeStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+  };
+
+  const handleSwipeMove = (e: React.PointerEvent) => {
+    if (!swipeStartRef.current || !edit || item.checked) return;
+    const deltaX = e.clientX - swipeStartRef.current.x;
+    const deltaY = e.clientY - swipeStartRef.current.y;
+    
+    // Only horizontal swipe to the right
+    if (deltaX > 0 && Math.abs(deltaX) > Math.abs(deltaY) * 2) {
+      e.preventDefault();
+      setSwipeX(Math.min(deltaX, SWIPE_DELETE_THRESHOLD));
+    }
+  };
+
+  const handleSwipeEnd = () => {
+    if (!swipeStartRef.current || !edit) return;
+    
+    if (swipeX >= SWIPE_DELETE_THRESHOLD) {
+      // Delete the item
+      props.onDelete();
+    }
+    
+    // Reset
+    setSwipeX(0);
+    swipeStartRef.current = null;
+  };
 
   const bgColor = item.checked
     ? allCheckedBlue
@@ -1524,6 +1462,7 @@ function Row(props: {
     boxSizing: "border-box",
     touchAction: "none",
     height: ROW_H,
+    position: 'relative' as const,
   };
 
   if (edit && item.checked) {
@@ -1559,163 +1498,329 @@ function Row(props: {
 
   return (
     <div
-      className="row"
-      data-id={item.id}
-      data-index={index}
-      style={rowStyle}
-      onClick={
-        !edit
-          ? () => {
-              primeHaptics();
-              props.onToggleChecked();
-            }
-          : undefined
-      }
+      style={{
+        position: 'relative' as const,
+        marginTop: index === 0 ? 0 : ROW_SPACING,
+      }}
     >
-      {edit && (
-        <button
-          type="button"
-          title="この行を削除"
-          aria-label="この行を削除"
-          onClick={(e) => {
-            e.stopPropagation();
-            primeHaptics();
-            props.onDelete();
-          }}
-          style={{
-            width: 24,
-            height: 24,
-            borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            background: "#fff",
-            flexShrink: 0,
-            display: "grid",
-            placeItems: "center",
-            fontSize: 14,
-          }}
-        >
-          ✖
-        </button>
-      )}
-      <textarea
-        ref={taRef}
-        value={item.text}
-        readOnly={!edit}
-        onInput={(e) =>
-          props.onInput(
-            (e.target as HTMLTextAreaElement).value,
-            e.currentTarget
-          )
-        }
-        onKeyDown={(e) => {
-          if (edit && e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            props.onEnter();
-          }
-        }}
-        onPaste={(e) => {
-          if (!edit) return;
-          const data = e.clipboardData || (window as any).clipboardData;
-          const text = data?.getData?.("text") ?? "";
-          if (!text || !text.includes("\n")) return;
-          e.preventDefault();
-          const ta = e.currentTarget as HTMLTextAreaElement;
-          const pos = ta.selectionStart ?? ta.value.length;
-          const { first, rest } = pasteMerge(ta.value, pos, text);
-          props.onInput(first, ta);
-          try {
-            const appSet = (window as any).__setAppState;
-            const appGet = (window as any).__getAppState;
-            if (appSet && appGet) {
-              const s: State = appGet();
-              const row = ta.closest(".row") as HTMLElement | null;
-              const id = row?.getAttribute("data-id") || "";
-              const idx = s.items.findIndex((it: Item) => it.id === id);
-              if (idx < 0) return;
-              const inserts = rest.map((l: string) => ({
-                id: uid(),
-                text: l,
-                checked: false,
-              }));
-              const next = [...s.items];
-              next[idx] = { ...next[idx], text: first };
-              if (inserts.length) next.splice(idx + 1, 0, ...inserts);
-              appSet({ edit: s.edit, items: next });
-              setTimeout(() => {
-                const lastId = inserts.length
-                  ? inserts[inserts.length - 1].id
-                  : next[idx].id;
-                const focusTa = document.querySelector(
-                  `.row[data-id="${lastId}"] textarea`
-                ) as HTMLTextAreaElement | null;
-                focusTa?.focus();
-                focusTa?.setSelectionRange(
-                  focusTa.value.length,
-                  focusTa.value.length
-                );
-              }, 0);
-            }
-          } catch {}
-        }}
-        spellCheck={false}
-        style={{
-          flex: 1,
-          minWidth: 0,
-          border: "none",
-          outline: "none",
-          resize: "none",
-          background: "transparent",
-          textDecoration: item.checked ? "line-through" : "none",
-          padding: 0,
-        }}
-      />
-      {edit && !item.checked && (
+      {/* Red delete bar background */}
+      {edit && swipeX > 0 && (
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            flexShrink: 0,
-            whiteSpace: "nowrap",
+            position: 'absolute' as const,
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: Math.min(swipeX, SWIPE_DELETE_THRESHOLD),
+            background: '#ef4444',
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            paddingLeft: 12,
+            zIndex: 0,
           }}
         >
-          <input
-            className="select"
-            type="checkbox"
-            checked={!!item._selected}
-            onChange={(e) => props.onToggleSelected(e.target.checked)}
-            onPointerDown={(e) => {
-              primeHaptics();
-              props.onPointerDownHandle(e);
-            }}
-            style={{ width: 20, height: 20 }}
-          />
-          <button
-            className="handle"
-            type="button"
-            onPointerDown={(e) => {
-              primeHaptics();
-              props.onPointerDownHandle(e);
-            }}
-            title="ドラッグで並び替え"
-            style={{
-              width: 32,
-              height: 28,
-              borderRadius: 6,
-              border: "1px dashed #d1d5db",
-              display: "grid",
-              placeItems: "center",
-              fontSize: 14,
-              color: "#6b7280",
-              background: "#fff",
-              touchAction: "none",
-              flexShrink: 0,
-            }}
+          {/* Trash icon */}
+          <svg 
+            width="24" 
+            height="24" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="white" 
+            strokeWidth="2" 
+            strokeLinecap="round" 
+            strokeLinejoin="round"
+            style={{ opacity: Math.min(swipeX / SWIPE_DELETE_THRESHOLD, 1) }}
           >
-            ≡
-          </button>
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            <line x1="10" y1="11" x2="10" y2="17"/>
+            <line x1="14" y1="11" x2="14" y2="17"/>
+          </svg>
         </div>
       )}
+      <div
+        className="row"
+        data-id={item.id}
+        data-index={index}
+        style={{
+          ...rowStyle,
+          marginTop: 0,
+          transform: `translateX(${swipeX}px)`,
+          transition: swipeStartRef.current ? 'none' : 'transform 0.2s ease-out',
+          zIndex: 1,
+        }}
+        onClick={
+          !edit
+            ? () => {
+                primeHaptics();
+                props.onToggleChecked();
+              }
+            : undefined
+        }
+        onPointerDown={handleSwipeStart}
+        onPointerMove={handleSwipeMove}
+        onPointerUp={handleSwipeEnd}
+        onPointerCancel={handleSwipeEnd}
+      >
+        <textarea
+          ref={taRef}
+          value={item.text}
+          readOnly={!edit}
+          onInput={(e) =>
+            props.onInput(
+              (e.target as HTMLTextAreaElement).value,
+              e.currentTarget
+            )
+          }
+          onKeyDown={(e) => {
+            if (edit && e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              props.onEnter();
+            }
+          }}
+          onPaste={(e) => {
+            if (!edit) return;
+            const data = e.clipboardData || (window as any).clipboardData;
+            const text = data?.getData?.("text") ?? "";
+            if (!text || !text.includes("\n")) return;
+            e.preventDefault();
+            const ta = e.currentTarget as HTMLTextAreaElement;
+            const pos = ta.selectionStart ?? ta.value.length;
+            const { first, rest } = pasteMerge(ta.value, pos, text);
+            props.onInput(first, ta);
+            try {
+              const appSet = (window as any).__setAppState;
+              const appGet = (window as any).__getAppState;
+              if (appSet && appGet) {
+                const s: State = appGet();
+                const row = ta.closest(".row") as HTMLElement | null;
+                const id = row?.getAttribute("data-id") || "";
+                const idx = s.items.findIndex((it: Item) => it.id === id);
+                if (idx < 0) return;
+                const inserts = rest.map((l: string) => ({
+                  id: uid(),
+                  text: l,
+                  checked: false,
+                }));
+                const next = [...s.items];
+                next[idx] = { ...next[idx], text: first };
+                if (inserts.length) next.splice(idx + 1, 0, ...inserts);
+                appSet({ edit: s.edit, items: next });
+                setTimeout(() => {
+                  const lastId = inserts.length
+                    ? inserts[inserts.length - 1].id
+                    : next[idx].id;
+                  const focusTa = document.querySelector(
+                    `.row[data-id="${lastId}"] textarea`
+                  ) as HTMLTextAreaElement | null;
+                  focusTa?.focus();
+                  focusTa?.setSelectionRange(
+                    focusTa.value.length,
+                    focusTa.value.length
+                  );
+                }, 0);
+              }
+            } catch {}
+          }}
+          spellCheck={false}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            border: "none",
+            outline: "none",
+            resize: "none",
+            background: "transparent",
+            textDecoration: item.checked ? "line-through" : "none",
+            padding: 0,
+          }}
+        />
+        {edit && !item.checked && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <input
+              className="select"
+              type="checkbox"
+              checked={!!item._selected}
+              onChange={(e) => props.onToggleSelected(e.target.checked)}
+              onPointerDown={(e) => {
+                primeHaptics();
+                props.onPointerDownHandle(e);
+              }}
+              style={{ width: 20, height: 20 }}
+            />
+            <button
+              className="handle"
+              type="button"
+              onPointerDown={(e) => {
+                primeHaptics();
+                props.onPointerDownHandle(e);
+              }}
+              title="ドラッグで並び替え"
+              style={{
+                width: 32,
+                height: 28,
+                borderRadius: 6,
+                border: "1px dashed #d1d5db",
+                display: "grid",
+                placeItems: "center",
+                fontSize: 14,
+                color: "#6b7280",
+                background: "#fff",
+                touchAction: "none",
+                flexShrink: 0,
+              }}
+            >
+              ≡
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Storage box list item with swipe-to-delete
+function StorageBoxListItem(props: {
+  entry: any;
+  onLoad: () => void;
+  onDelete: () => void;
+}) {
+  const { entry } = props;
+  const [swipeX, setSwipeX] = useState(0);
+  const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const SWIPE_DELETE_THRESHOLD = 120;
+
+  const handleSwipeStart = (e: React.PointerEvent) => {
+    swipeStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+  };
+
+  const handleSwipeMove = (e: React.PointerEvent) => {
+    if (!swipeStartRef.current) return;
+    const deltaX = e.clientX - swipeStartRef.current.x;
+    const deltaY = e.clientY - swipeStartRef.current.y;
+    
+    // Only horizontal swipe to the right
+    if (deltaX > 0 && Math.abs(deltaX) > Math.abs(deltaY) * 2) {
+      e.preventDefault();
+      e.stopPropagation();
+      setSwipeX(Math.min(deltaX, SWIPE_DELETE_THRESHOLD));
+    }
+  };
+
+  const handleSwipeEnd = () => {
+    if (!swipeStartRef.current) return;
+    
+    if (swipeX >= SWIPE_DELETE_THRESHOLD) {
+      props.onDelete();
+    }
+    
+    setSwipeX(0);
+    swipeStartRef.current = null;
+  };
+
+  return (
+    <div
+      style={{
+        position: 'relative' as const,
+      }}
+      onPointerDown={handleSwipeStart}
+      onPointerMove={handleSwipeMove}
+      onPointerUp={handleSwipeEnd}
+      onPointerCancel={handleSwipeEnd}
+    >
+      {/* Red delete bar background */}
+      {swipeX > 0 && (
+        <div
+          style={{
+            position: 'absolute' as const,
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: Math.min(swipeX, SWIPE_DELETE_THRESHOLD),
+            background: '#ef4444',
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            paddingLeft: 12,
+            zIndex: 0,
+          }}
+        >
+          {/* Trash icon */}
+          <svg 
+            width="24" 
+            height="24" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="white" 
+            strokeWidth="2" 
+            strokeLinecap="round" 
+            strokeLinejoin="round"
+            style={{ opacity: Math.min(swipeX / SWIPE_DELETE_THRESHOLD, 1) }}
+          >
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            <line x1="10" y1="11" x2="10" y2="17"/>
+            <line x1="14" y1="11" x2="14" y2="17"/>
+          </svg>
+        </div>
+      )}
+      <div
+        style={{
+          border: '1px solid #e5e7eb',
+          borderRadius: 10,
+          padding: '10px 12px',
+          background: '#f8fafc',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+          position: 'relative' as const,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          transform: `translateX(${swipeX}px)`,
+          transition: swipeStartRef.current ? 'none' : 'transform 0.2s ease-out',
+          zIndex: 1,
+        }}
+      >
+        <div
+          style={{ flex: 1, cursor: 'pointer' }}
+          onClick={props.onLoad}
+          title="このリストを表示"
+        >
+          <div style={{fontWeight: 600, fontSize: 16, marginBottom: 4}}>
+            {(() => {
+              const d = new Date(entry.savedAt);
+              const z2 = (n: number) => (n < 10 ? '0' : '') + n;
+              return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
+            })()}
+          </div>
+          <div style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6}}>
+            {entry.items.slice(0, 4).map((it: any, idx: number) => (
+              <span key={idx} style={{
+                background: '#fff',
+                border: '1px solid #e5e7eb',
+                borderRadius: 6,
+                padding: '2px 8px',
+                marginRight: 2,
+                maxWidth: 100,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'inline-block',
+              }}>{it.text}</span>
+            ))}
+            {entry.items.length > 4 && <span style={{color: '#aaa'}}>…</span>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
