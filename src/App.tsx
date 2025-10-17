@@ -182,12 +182,6 @@ export default function App() {
     );
   }
   
-  // 新規リスト作成用
-  const handleNewList = () => {
-    setState({ edit: true, items: [{ id: uid(), text: "", checked: false }] });
-    setCurrentStorageBoxId(null);
-  };
-  
   // 現在のリストを保存ボックスに保存するヘルパー関数
   const saveCurrentListToStorageBox = () => {
     try {
@@ -1039,7 +1033,6 @@ export default function App() {
                       {/* 最終更新日時のみ表示 */}
                       {(() => {
                         const d = new Date(entry.savedAt);
-                        const z2 = (n: number) => (n < 10 ? '0' : '') + n;
                         return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
                       })()}
                     </div>
