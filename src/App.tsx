@@ -168,10 +168,40 @@ function useRealViewportHeight() {
 
 // ========================= App =========================
 export default function App() {
+  // 現在のリストを保存ボックスに保存する
+  const saveCurrentListToBox = () => {
+    try {
+      const validItems = state.items.filter((it: Item) => it.text.trim() !== "");
+      if (validItems.length === 0) return; // 空リストは保存しない
+      
+      const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
+      const box = boxRaw ? JSON.parse(boxRaw) : [];
+      const title = getNowString();
+      const entry = {
+        id: uid(),
+        title,
+        savedAt: Date.now(),
+        items: validItems,
+      };
+      box.unshift(entry);
+      localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+    } catch (e) {
+      console.error("保存に失敗しました:", e);
+    }
+  };
+
   // 新規リスト作成用
   const handleNewList = () => {
+    // 既存リストを保存ボックスに保存してから新規リスト作成
+    saveCurrentListToBox();
     setState({ edit: true, items: [{ id: uid(), text: "", checked: false }] });
     setCurrentStorageBoxId(null);
+    // 一番上のアイテムにフォーカス
+    setTimeout(() => {
+      const ta = document.querySelector(".row textarea") as HTMLTextAreaElement | null;
+      ta?.focus();
+      ta?.setSelectionRange(0, 0);
+    }, 0);
   };
   // 保存完了表示用
   const [saveDone, setSaveDone] = useState(false);
@@ -1001,6 +1031,8 @@ export default function App() {
                   <div
                     style={{ flex: 1, cursor: 'pointer' }}
                     onClick={() => {
+                      // 既存リストを保存ボックスに保存してから読み込む
+                      saveCurrentListToBox();
                       setState({ edit: true, items: entry.items });
                       setCurrentStorageBoxId(entry.id);
                       setShowStorageBox(false);
@@ -1136,14 +1168,7 @@ export default function App() {
           <div style={{ display: "flex", gap: 8 }}>
             {/* 新規リストボタン */}
             <button
-              onClick={() => {
-                setState((prev: State) => ({
-                  ...prev,
-                  items: [{ id: uid(), text: "", checked: false }],
-                  edit: true,
-                }));
-                setCurrentStorageBoxId(null);
-              }}
+              onClick={handleNewList}
               title="新規リスト"
               style={{
                 width: 40,
