@@ -168,6 +168,20 @@ function useRealViewportHeight() {
 
 // ========================= App =========================
 export default function App() {
+  // 保存ボックスのキー（先に宣言）
+  const STORAGEBOX_KEY = "shoppinglist2_storagebox";
+  function z2(n: number) { return (n < 10 ? '0' : '') + n; }
+  function getNowString() {
+    const d = new Date();
+    return (
+      d.getFullYear() +
+      '-' + z2(d.getMonth() + 1) +
+      '-' + z2(d.getDate()) +
+      ' ' + z2(d.getHours()) +
+      ':' + z2(d.getMinutes())
+    );
+  }
+  
   // 新規リスト作成用
   const handleNewList = () => {
     setState({ edit: true, items: [{ id: uid(), text: "", checked: false }] });
@@ -922,18 +936,6 @@ export default function App() {
   }, []);
 
   // 保存ボタン・保存ボックスボタンのクリックハンドラ
-  const STORAGEBOX_KEY = "shoppinglist2_storagebox";
-  function z2(n: number) { return (n < 10 ? '0' : '') + n; }
-  function getNowString() {
-    const d = new Date();
-    return (
-      d.getFullYear() +
-      '-' + z2(d.getMonth() + 1) +
-      '-' + z2(d.getDate()) +
-      ' ' + z2(d.getHours()) +
-      ':' + z2(d.getMinutes())
-    );
-  }
   // (duplicate onSave removed)
   const onOpenStorageBox = () => {
     setShowStorageBox(true);
