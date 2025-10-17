@@ -10,6 +10,14 @@ export type Item = {
 };
 export type State = { edit: boolean; items: Item[] };
 
+// Storage Box Entry type
+type StorageBoxEntry = {
+  id: string;
+  title: string;
+  savedAt: number;
+  items: Item[];
+};
+
 const STORAGE_KEY = "shopping_list_v1_react";
 const HISTORY_LIMIT = 10;
 const ROW_SPACING = 6; // px between rows (margin-top for rows except first)
@@ -589,35 +597,17 @@ export default function App() {
     []
   );
 
-  // 保存ボックス削除（二段階）
-  const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
-  const deleteTimerRef = useRef<number | null>(null);
+  // 保存ボックス削除
   const [storageBoxRefreshKey, setStorageBoxRefreshKey] = useState(0);
-  const armDelete = (id: string) => {
-    setDeleteArmedId(id);
-    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-    deleteTimerRef.current = window.setTimeout(
-      () => setDeleteArmedId(null),
-      ARM_TIMEOUT_MS
-    );
-  };
   const doDelete = (id: string) => {
-    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
     const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
     if (!boxRaw) return;
     let box = JSON.parse(boxRaw);
     box = box.filter((b: any) => b.id !== id);
     localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
-    setDeleteArmedId(null);
     // 再レンダリングを強制するためにキーを更新
     setStorageBoxRefreshKey(prev => prev + 1);
   };
-  useEffect(
-    () => () => {
-      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-    },
-    []
-  );
 
   // ===== DnD（未チェック側のみ） =====
   const onPointerDownHandle = (
@@ -1013,92 +1003,19 @@ export default function App() {
                 <div style={{color: '#888', textAlign: 'center'}}>保存されたリストはありません</div>
               )}
               {[...getStorageBoxList()].sort((a, b) => b.savedAt - a.savedAt).map((entry: any) => (
-                <div
+                <StorageBoxItem
                   key={entry.id}
-                  style={{
-                    border: '1px solid #e5e7eb',
-                    borderRadius: 10,
-                    padding: '10px 12px',
-                    background: '#f8fafc',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
+                  entry={entry}
+                  onLoadList={(loadedEntry) => {
+                    saveCurrentListToBox();
+                    setState({ edit: true, items: loadedEntry.items });
+                    setCurrentStorageBoxId(loadedEntry.id);
+                    setShowStorageBox(false);
                   }}
-                >
-                  <div
-                    style={{ flex: 1, cursor: 'pointer' }}
-                    onClick={() => {
-                      // 既存リストを保存ボックスに保存してから読み込む
-                      saveCurrentListToBox();
-                      setState({ edit: true, items: entry.items });
-                      setCurrentStorageBoxId(entry.id);
-                      setShowStorageBox(false);
-                    }}
-                    title="このリストを表示"
-                  >
-                    <div style={{fontWeight: 600, fontSize: 16, marginBottom: 4}}>
-                      {/* 最終更新日時のみ表示 */}
-                      {(() => {
-                        const d = new Date(entry.savedAt);
-                        const z2 = (n: number) => (n < 10 ? '0' : '') + n;
-                        return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
-                      })()}
-                    </div>
-                    <div style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6}}>
-                      {entry.items.slice(0, 4).map((it: any, idx: number) => (
-                        <span key={idx} style={{
-                          background: '#fff',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: 6,
-                          padding: '2px 8px',
-                          marginRight: 2,
-                          maxWidth: 100,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          display: 'inline-block',
-                        }}>{it.text}</span>
-                      ))}
-                      {entry.items.length > 4 && <span style={{color: '#aaa'}}>…</span>}
-                    </div>
-                  </div>
-                  {/* 削除ボタン */}
-                  <button
-                    onClick={e => {
-                      e.stopPropagation();
-                      const isArmed = deleteArmedId === entry.id;
-                      if (isArmed) {
-                        doDelete(entry.id);
-                      } else {
-                        armDelete(entry.id);
-                      }
-                    }}
-                    title={deleteArmedId === entry.id ? "削除を実行" : "このリストを削除"}
-                    aria-label={deleteArmedId === entry.id ? "削除を実行" : "このリストを削除"}
-                    style={{
-                      background: deleteArmedId === entry.id ? '#ef4444' : 'none',
-                      border: deleteArmedId === entry.id ? '1px solid #ef4444' : 'none',
-                      cursor: 'pointer',
-                      padding: deleteArmedId === entry.id ? '4px 8px' : 4,
-                      marginLeft: 4,
-                      color: deleteArmedId === entry.id ? '#fff' : '#e11d48',
-                      display: 'flex',
-                      alignItems: 'center',
-                      borderRadius: 6,
-                      fontWeight: deleteArmedId === entry.id ? 600 : 'normal',
-                      fontSize: deleteArmedId === entry.id ? 12 : undefined,
-                    }}
-                  >
-                    {deleteArmedId === entry.id ? (
-                      'DELETE'
-                    ) : (
-                      /* ×マークピクトグラム */
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    )}
-                  </button>
-                </div>
+                  onDelete={(id) => {
+                    doDelete(id);
+                  }}
+                />
               ))}
             </div>
           </div>
@@ -1938,6 +1855,263 @@ function Row(props: {
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ========================= StorageBoxItem Component =========================
+function StorageBoxItem(props: {
+  entry: StorageBoxEntry;
+  onLoadList: (entry: StorageBoxEntry) => void;
+  onDelete: (id: string) => void;
+}) {
+  const { entry } = props;
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const swipeRef = useRef<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    startTime: number;
+    isDragging: boolean;
+  } | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const SWIPE_DELETE_THRESHOLD = 0.35; // 35%
+
+  const handlePointerStart = (e: React.PointerEvent) => {
+    swipeRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      currentX: e.clientX,
+      startTime: Date.now(),
+      isDragging: false,
+    };
+    try {
+      (e.currentTarget as any).setPointerCapture?.(e.pointerId);
+    } catch {}
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!swipeRef.current) return;
+    const deltaX = e.clientX - swipeRef.current.startX;
+    const deltaY = e.clientY - swipeRef.current.startY;
+
+    if (!swipeRef.current.isDragging) {
+      if (Math.abs(deltaX) > 5 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        swipeRef.current.isDragging = true;
+        e.preventDefault();
+      } else if (Math.abs(deltaY) > 5) {
+        swipeRef.current = null;
+        return;
+      }
+    }
+
+    if (swipeRef.current.isDragging) {
+      e.preventDefault();
+      if (deltaX > 0) {
+        swipeRef.current.currentX = e.clientX;
+        setSwipeOffset(deltaX);
+      }
+    }
+  };
+
+  const handlePointerEnd = (e: React.PointerEvent) => {
+    if (!swipeRef.current || !swipeRef.current.isDragging) {
+      swipeRef.current = null;
+      setSwipeOffset(0);
+      return;
+    }
+
+    const deltaX = swipeRef.current.currentX - swipeRef.current.startX;
+    const wrapper = wrapperRef.current;
+    if (!wrapper) {
+      swipeRef.current = null;
+      setSwipeOffset(0);
+      return;
+    }
+
+    const wrapperWidth = wrapper.offsetWidth;
+    const threshold = wrapperWidth * SWIPE_DELETE_THRESHOLD;
+
+    if (deltaX >= threshold) {
+      setIsDeleting(true);
+      vibrateNow(50);
+      setTimeout(() => {
+        props.onDelete(entry.id);
+      }, 200);
+    } else {
+      setSwipeOffset(0);
+    }
+
+    swipeRef.current = null;
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    swipeRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      startTime: Date.now(),
+      isDragging: false,
+    };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!swipeRef.current) return;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - swipeRef.current.startX;
+    const deltaY = touch.clientY - swipeRef.current.startY;
+
+    if (!swipeRef.current.isDragging) {
+      if (Math.abs(deltaX) > 5 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        swipeRef.current.isDragging = true;
+      } else if (Math.abs(deltaY) > 5) {
+        swipeRef.current = null;
+        return;
+      }
+    }
+
+    if (swipeRef.current.isDragging) {
+      e.preventDefault();
+      if (deltaX > 0) {
+        swipeRef.current.currentX = touch.clientX;
+        setSwipeOffset(deltaX);
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!swipeRef.current || !swipeRef.current.isDragging) {
+      swipeRef.current = null;
+      setSwipeOffset(0);
+      return;
+    }
+
+    const deltaX = swipeRef.current.currentX - swipeRef.current.startX;
+    const wrapper = wrapperRef.current;
+    if (!wrapper) {
+      swipeRef.current = null;
+      setSwipeOffset(0);
+      return;
+    }
+
+    const wrapperWidth = wrapper.offsetWidth;
+    const threshold = wrapperWidth * SWIPE_DELETE_THRESHOLD;
+
+    if (deltaX >= threshold) {
+      setIsDeleting(true);
+      vibrateNow(50);
+      setTimeout(() => {
+        props.onDelete(entry.id);
+      }, 200);
+    } else {
+      setSwipeOffset(0);
+    }
+
+    swipeRef.current = null;
+  };
+
+  const wrapperStyle: React.CSSProperties = {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 10,
+  };
+
+  const contentStyle: React.CSSProperties = {
+    border: '1px solid #e5e7eb',
+    borderRadius: 10,
+    padding: '10px 12px',
+    background: '#f8fafc',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    transform: isDeleting ? `translateX(100%)` : `translateX(${swipeOffset}px)`,
+    transition: isDeleting
+      ? "transform 0.2s ease-out, opacity 0.15s ease-out"
+      : swipeOffset === 0
+      ? "transform 0.2s ease-out"
+      : "none",
+    opacity: isDeleting ? 0 : 1,
+    zIndex: 1,
+  };
+
+  const trashBarStyle: React.CSSProperties = {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: '100%',
+    background: '#ef4444',
+    display: 'flex',
+    alignItems: 'center',
+    paddingLeft: 16,
+    fontSize: 24,
+    borderRadius: 10,
+  };
+
+  return (
+    <div
+      ref={wrapperRef}
+      style={wrapperStyle}
+      onPointerDown={handlePointerStart}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={() => {
+        swipeRef.current = null;
+        setSwipeOffset(0);
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {swipeOffset > 0 && (
+        <div style={trashBarStyle}>
+          🗑️
+        </div>
+      )}
+      <div style={contentStyle}>
+        <div
+          style={{ flex: 1, cursor: 'pointer' }}
+          onClick={(e) => {
+            if (swipeRef.current?.isDragging) {
+              e.preventDefault();
+              e.stopPropagation();
+              return;
+            }
+            props.onLoadList(entry);
+          }}
+          title="このリストを表示"
+        >
+          <div style={{fontWeight: 600, fontSize: 16, marginBottom: 4}}>
+            {(() => {
+              const d = new Date(entry.savedAt);
+              const z2 = (n: number) => (n < 10 ? '0' : '') + n;
+              return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
+            })()}
+          </div>
+          <div style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6}}>
+            {entry.items.slice(0, 4).map((it: any, idx: number) => (
+              <span key={idx} style={{
+                background: '#fff',
+                border: '1px solid #e5e7eb',
+                borderRadius: 6,
+                padding: '2px 8px',
+                marginRight: 2,
+                maxWidth: 100,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'inline-block',
+              }}>{it.text}</span>
+            ))}
+            {entry.items.length > 4 && <span style={{color: '#aaa'}}>…</span>}
+          </div>
+        </div>
       </div>
     </div>
   );
