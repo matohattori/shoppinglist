@@ -20,6 +20,8 @@ const CHECKED_VH = 28; // 非編集時：チェック済みエリアの固定高
 const UNCHECKED_VH = 52; // 非編集時：未チェックエリアの固定高さ（vh）
 const BUTTONS_VH = 20; // ボタンエリアの固定高さ（vh）
 const EDIT_UNCHECKED_VH = UNCHECKED_VH + CHECKED_VH; // 編集モード時は未チェックを拡張（案A）
+const SWIPE_DELETE_THRESHOLD = 120; // Swipe distance (px) to trigger delete
+const SWIPE_DIRECTION_RATIO = 2; // Horizontal/vertical ratio to detect horizontal swipe
 
 // ★ 全チェック時の背景候補（5枚）
 const ALL_DONE_IMAGES = [
@@ -1400,7 +1402,6 @@ function Row(props: {
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const [swipeX, setSwipeX] = useState(0);
   const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
-  const SWIPE_DELETE_THRESHOLD = 120; // px to trigger delete
   // 固定行高に合わせる（自己伸長はしない・垂直中央）
   useEffect(() => {
     const ta = taRef.current;
@@ -1424,8 +1425,9 @@ function Row(props: {
     const deltaY = e.clientY - swipeStartRef.current.y;
     
     // Only horizontal swipe to the right
-    if (deltaX > 0 && Math.abs(deltaX) > Math.abs(deltaY) * 2) {
+    if (deltaX > 0 && Math.abs(deltaX) > Math.abs(deltaY) * SWIPE_DIRECTION_RATIO) {
       e.preventDefault();
+      e.stopPropagation();
       setSwipeX(Math.min(deltaX, SWIPE_DELETE_THRESHOLD));
     }
   };
@@ -1697,7 +1699,6 @@ function StorageBoxListItem(props: {
   const { entry } = props;
   const [swipeX, setSwipeX] = useState(0);
   const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
-  const SWIPE_DELETE_THRESHOLD = 120;
 
   const handleSwipeStart = (e: React.PointerEvent) => {
     swipeStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
@@ -1709,7 +1710,7 @@ function StorageBoxListItem(props: {
     const deltaY = e.clientY - swipeStartRef.current.y;
     
     // Only horizontal swipe to the right
-    if (deltaX > 0 && Math.abs(deltaX) > Math.abs(deltaY) * 2) {
+    if (deltaX > 0 && Math.abs(deltaX) > Math.abs(deltaY) * SWIPE_DIRECTION_RATIO) {
       e.preventDefault();
       e.stopPropagation();
       setSwipeX(Math.min(deltaX, SWIPE_DELETE_THRESHOLD));
