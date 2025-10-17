@@ -557,7 +557,6 @@ export default function App() {
   };
 
   const deleteItem = (id: string) => {
-    if (!state.edit) return;
     pushHistory(state);
     setState((prev: State) => ({
       edit: prev.edit,
@@ -1264,7 +1263,7 @@ export default function App() {
                 onToggleChecked={() => toggleCheckedById(item.id)}
                 onToggleSelected={() => {}}
                 onDelete={() => {
-                  if (state.edit) deleteItem(item.id);
+                  deleteItem(item.id);
                 }}
                 onPointerDownHandle={() => {}}
               />
@@ -1494,6 +1493,17 @@ function Row(props: {
 }) {
   const { item, index, edit, allCheckedBlue } = props;
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const rowWrapperRef = useRef<HTMLDivElement | null>(null);
+  const swipeRef = useRef<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    startTime: number;
+    isDragging: boolean;
+  } | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // 固定行高に合わせる（自己伸長はしない・垂直中央）
   useEffect(() => {
     const ta = taRef.current;
@@ -1505,16 +1515,172 @@ function Row(props: {
     ta.style.fontSize = "16px";
   }, [item.text, edit]);
 
+  // Swipe threshold: 30-40% of tile width
+  const SWIPE_DELETE_THRESHOLD = 0.35; // 35%
+
+  const handlePointerStart = (e: React.PointerEvent) => {
+    if (edit) return; // Only in non-edit mode
+    swipeRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      currentX: e.clientX,
+      startTime: Date.now(),
+      isDragging: false,
+    };
+    try {
+      (e.currentTarget as any).setPointerCapture?.(e.pointerId);
+    } catch {}
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!swipeRef.current || edit) return;
+    const deltaX = e.clientX - swipeRef.current.startX;
+    const deltaY = e.clientY - swipeRef.current.startY;
+
+    // Only start dragging if horizontal movement is dominant
+    if (!swipeRef.current.isDragging) {
+      if (Math.abs(deltaX) > 5 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        swipeRef.current.isDragging = true;
+        e.preventDefault();
+      } else if (Math.abs(deltaY) > 5) {
+        // Vertical scroll, cancel swipe
+        swipeRef.current = null;
+        return;
+      }
+    }
+
+    if (swipeRef.current.isDragging) {
+      e.preventDefault();
+      // Only allow right swipe (positive deltaX)
+      if (deltaX > 0) {
+        swipeRef.current.currentX = e.clientX;
+        setSwipeOffset(deltaX);
+      }
+    }
+  };
+
+  const handlePointerEnd = (e: React.PointerEvent) => {
+    if (!swipeRef.current || !swipeRef.current.isDragging || edit) {
+      swipeRef.current = null;
+      setSwipeOffset(0);
+      return;
+    }
+
+    const deltaX = swipeRef.current.currentX - swipeRef.current.startX;
+    const wrapper = rowWrapperRef.current;
+    if (!wrapper) {
+      swipeRef.current = null;
+      setSwipeOffset(0);
+      return;
+    }
+
+    const wrapperWidth = wrapper.offsetWidth;
+    const threshold = wrapperWidth * SWIPE_DELETE_THRESHOLD;
+
+    if (deltaX >= threshold) {
+      // Delete confirmed - trigger animation
+      setIsDeleting(true);
+      vibrateNow(50); // Haptic feedback
+      setTimeout(() => {
+        props.onDelete();
+      }, 200); // Match slide animation duration
+    } else {
+      // Snap back
+      setSwipeOffset(0);
+    }
+
+    swipeRef.current = null;
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (edit) return; // Only in non-edit mode
+    const touch = e.touches[0];
+    swipeRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      startTime: Date.now(),
+      isDragging: false,
+    };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!swipeRef.current || edit) return;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - swipeRef.current.startX;
+    const deltaY = touch.clientY - swipeRef.current.startY;
+
+    // Only start dragging if horizontal movement is dominant
+    if (!swipeRef.current.isDragging) {
+      if (Math.abs(deltaX) > 5 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        swipeRef.current.isDragging = true;
+      } else if (Math.abs(deltaY) > 5) {
+        // Vertical scroll, cancel swipe
+        swipeRef.current = null;
+        return;
+      }
+    }
+
+    if (swipeRef.current.isDragging) {
+      e.preventDefault();
+      // Only allow right swipe (positive deltaX)
+      if (deltaX > 0) {
+        swipeRef.current.currentX = touch.clientX;
+        setSwipeOffset(deltaX);
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!swipeRef.current || !swipeRef.current.isDragging || edit) {
+      swipeRef.current = null;
+      setSwipeOffset(0);
+      return;
+    }
+
+    const deltaX = swipeRef.current.currentX - swipeRef.current.startX;
+    const wrapper = rowWrapperRef.current;
+    if (!wrapper) {
+      swipeRef.current = null;
+      setSwipeOffset(0);
+      return;
+    }
+
+    const wrapperWidth = wrapper.offsetWidth;
+    const threshold = wrapperWidth * SWIPE_DELETE_THRESHOLD;
+
+    if (deltaX >= threshold) {
+      // Delete confirmed - trigger animation
+      setIsDeleting(true);
+      vibrateNow(50); // Haptic feedback
+      setTimeout(() => {
+        props.onDelete();
+      }, 200); // Match slide animation duration
+    } else {
+      // Snap back
+      setSwipeOffset(0);
+    }
+
+    swipeRef.current = null;
+  };
+
   const bgColor = item.checked
     ? allCheckedBlue
       ? "#2563eb"
       : "#cbd5e1"
     : "#fff";
+  
+  const wrapperStyle: React.CSSProperties = {
+    position: "relative",
+    marginTop: index === 0 ? 0 : ROW_SPACING,
+    overflow: "hidden",
+    borderRadius: 10,
+  };
+
   const rowStyle: React.CSSProperties = {
     display: "flex",
     alignItems: "center",
     flexWrap: "nowrap",
-    marginTop: index === 0 ? 0 : ROW_SPACING,
     border: "1px solid #e5e7eb",
     borderRadius: 10,
     padding: "6px 16px",
@@ -1522,25 +1688,198 @@ function Row(props: {
     width: "100%",
     background: bgColor,
     boxSizing: "border-box",
-    touchAction: "none",
+    touchAction: edit ? "none" : "pan-y",
     height: ROW_H,
+    transform: isDeleting ? `translateX(100%)` : `translateX(${swipeOffset}px)`,
+    transition: isDeleting
+      ? "transform 0.2s ease-out, opacity 0.15s ease-out"
+      : swipeOffset === 0
+      ? "transform 0.2s ease-out"
+      : "none",
+    opacity: isDeleting ? 0 : 1,
+    position: "relative",
+    zIndex: 1,
+  };
+
+  const trashBarStyle: React.CSSProperties = {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: "100%",
+    background: "#ef4444",
+    display: "flex",
+    alignItems: "center",
+    paddingLeft: 16,
+    fontSize: 24,
+    borderRadius: 10,
   };
 
   if (edit && item.checked) {
     return (
       <div
+        ref={rowWrapperRef}
+        className="row-wrapper"
+        style={wrapperStyle}
+      >
+        <div
+          className="row"
+          data-id={item.id}
+          data-index={index}
+          data-checked="1"
+          style={rowStyle}
+        >
+          <textarea
+            ref={taRef}
+            value={item.text}
+            readOnly
+            spellCheck={false}
+            onBlur={() => {}}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              border: "none",
+              outline: "none",
+              resize: "none",
+              background: "transparent",
+              color: "#777",
+              textDecoration: "line-through",
+              padding: 0,
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={rowWrapperRef}
+      className="row-wrapper"
+      style={wrapperStyle}
+      onPointerDown={handlePointerStart}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={() => {
+        swipeRef.current = null;
+        setSwipeOffset(0);
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Red trash bar background */}
+      {!edit && swipeOffset > 0 && (
+        <div style={trashBarStyle}>
+          🗑️
+        </div>
+      )}
+      <div
         className="row"
         data-id={item.id}
         data-index={index}
-        data-checked="1"
         style={rowStyle}
+        onClick={
+          !edit
+            ? (e) => {
+                // Don't toggle if we were swiping
+                if (swipeRef.current?.isDragging) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return;
+                }
+                primeHaptics();
+                props.onToggleChecked();
+              }
+            : undefined
+        }
       >
+        {edit && (
+          <button
+            type="button"
+            title="この行を削除"
+            aria-label="この行を削除"
+            onClick={(e) => {
+              e.stopPropagation();
+              primeHaptics();
+              props.onDelete();
+            }}
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              flexShrink: 0,
+              display: "grid",
+              placeItems: "center",
+              fontSize: 14,
+            }}
+          >
+            ✖
+          </button>
+        )}
         <textarea
           ref={taRef}
           value={item.text}
-          readOnly
+          readOnly={!edit}
+          onInput={(e) =>
+            props.onInput(
+              (e.target as HTMLTextAreaElement).value,
+              e.currentTarget
+            )
+          }
+          onKeyDown={(e) => {
+            if (edit && e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              props.onEnter();
+            }
+          }}
+          onPaste={(e) => {
+            if (!edit) return;
+            const data = e.clipboardData || (window as any).clipboardData;
+            const text = data?.getData?.("text") ?? "";
+            if (!text || !text.includes("\n")) return;
+            e.preventDefault();
+            const ta = e.currentTarget as HTMLTextAreaElement;
+            const pos = ta.selectionStart ?? ta.value.length;
+            const { first, rest } = pasteMerge(ta.value, pos, text);
+            props.onInput(first, ta);
+            try {
+              const appSet = (window as any).__setAppState;
+              const appGet = (window as any).__getAppState;
+              if (appSet && appGet) {
+                const s: State = appGet();
+                const row = ta.closest(".row") as HTMLElement | null;
+                const id = row?.getAttribute("data-id") || "";
+                const idx = s.items.findIndex((it: Item) => it.id === id);
+                if (idx < 0) return;
+                const inserts = rest.map((l: string) => ({
+                  id: uid(),
+                  text: l,
+                  checked: false,
+                }));
+                const next = [...s.items];
+                next[idx] = { ...next[idx], text: first };
+                if (inserts.length) next.splice(idx + 1, 0, ...inserts);
+                appSet({ edit: s.edit, items: next });
+                setTimeout(() => {
+                  const lastId = inserts.length
+                    ? inserts[inserts.length - 1].id
+                    : next[idx].id;
+                  const focusTa = document.querySelector(
+                    `.row[data-id="${lastId}"] textarea`
+                  ) as HTMLTextAreaElement | null;
+                  focusTa?.focus();
+                  focusTa?.setSelectionRange(
+                    focusTa.value.length,
+                    focusTa.value.length
+                  );
+                }, 0);
+              }
+            } catch {}
+          }}
           spellCheck={false}
-          onBlur={() => {}}
           style={{
             flex: 1,
             minWidth: 0,
@@ -1548,174 +1887,58 @@ function Row(props: {
             outline: "none",
             resize: "none",
             background: "transparent",
-            color: "#777",
-            textDecoration: "line-through",
+            textDecoration: item.checked ? "line-through" : "none",
             padding: 0,
           }}
         />
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="row"
-      data-id={item.id}
-      data-index={index}
-      style={rowStyle}
-      onClick={
-        !edit
-          ? () => {
-              primeHaptics();
-              props.onToggleChecked();
-            }
-          : undefined
-      }
-    >
-      {edit && (
-        <button
-          type="button"
-          title="この行を削除"
-          aria-label="この行を削除"
-          onClick={(e) => {
-            e.stopPropagation();
-            primeHaptics();
-            props.onDelete();
-          }}
-          style={{
-            width: 24,
-            height: 24,
-            borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            background: "#fff",
-            flexShrink: 0,
-            display: "grid",
-            placeItems: "center",
-            fontSize: 14,
-          }}
-        >
-          ✖
-        </button>
-      )}
-      <textarea
-        ref={taRef}
-        value={item.text}
-        readOnly={!edit}
-        onInput={(e) =>
-          props.onInput(
-            (e.target as HTMLTextAreaElement).value,
-            e.currentTarget
-          )
-        }
-        onKeyDown={(e) => {
-          if (edit && e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            props.onEnter();
-          }
-        }}
-        onPaste={(e) => {
-          if (!edit) return;
-          const data = e.clipboardData || (window as any).clipboardData;
-          const text = data?.getData?.("text") ?? "";
-          if (!text || !text.includes("\n")) return;
-          e.preventDefault();
-          const ta = e.currentTarget as HTMLTextAreaElement;
-          const pos = ta.selectionStart ?? ta.value.length;
-          const { first, rest } = pasteMerge(ta.value, pos, text);
-          props.onInput(first, ta);
-          try {
-            const appSet = (window as any).__setAppState;
-            const appGet = (window as any).__getAppState;
-            if (appSet && appGet) {
-              const s: State = appGet();
-              const row = ta.closest(".row") as HTMLElement | null;
-              const id = row?.getAttribute("data-id") || "";
-              const idx = s.items.findIndex((it: Item) => it.id === id);
-              if (idx < 0) return;
-              const inserts = rest.map((l: string) => ({
-                id: uid(),
-                text: l,
-                checked: false,
-              }));
-              const next = [...s.items];
-              next[idx] = { ...next[idx], text: first };
-              if (inserts.length) next.splice(idx + 1, 0, ...inserts);
-              appSet({ edit: s.edit, items: next });
-              setTimeout(() => {
-                const lastId = inserts.length
-                  ? inserts[inserts.length - 1].id
-                  : next[idx].id;
-                const focusTa = document.querySelector(
-                  `.row[data-id="${lastId}"] textarea`
-                ) as HTMLTextAreaElement | null;
-                focusTa?.focus();
-                focusTa?.setSelectionRange(
-                  focusTa.value.length,
-                  focusTa.value.length
-                );
-              }, 0);
-            }
-          } catch {}
-        }}
-        spellCheck={false}
-        style={{
-          flex: 1,
-          minWidth: 0,
-          border: "none",
-          outline: "none",
-          resize: "none",
-          background: "transparent",
-          textDecoration: item.checked ? "line-through" : "none",
-          padding: 0,
-        }}
-      />
-      {edit && !item.checked && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            flexShrink: 0,
-            whiteSpace: "nowrap",
-          }}
-        >
-          <input
-            className="select"
-            type="checkbox"
-            checked={!!item._selected}
-            onChange={(e) => props.onToggleSelected(e.target.checked)}
-            onPointerDown={(e) => {
-              primeHaptics();
-              props.onPointerDownHandle(e);
-            }}
-            style={{ width: 20, height: 20 }}
-          />
-          <button
-            className="handle"
-            type="button"
-            onPointerDown={(e) => {
-              primeHaptics();
-              props.onPointerDownHandle(e);
-            }}
-            title="ドラッグで並び替え"
+        {edit && !item.checked && (
+          <div
             style={{
-              width: 32,
-              height: 28,
-              borderRadius: 6,
-              border: "1px dashed #d1d5db",
-              display: "grid",
-              placeItems: "center",
-              fontSize: 14,
-              color: "#6b7280",
-              background: "#fff",
-              touchAction: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
               flexShrink: 0,
+              whiteSpace: "nowrap",
             }}
           >
-            ≡
-          </button>
-        </div>
-      )}
+            <input
+              className="select"
+              type="checkbox"
+              checked={!!item._selected}
+              onChange={(e) => props.onToggleSelected(e.target.checked)}
+              onPointerDown={(e) => {
+                primeHaptics();
+                props.onPointerDownHandle(e);
+              }}
+              style={{ width: 20, height: 20 }}
+            />
+            <button
+              className="handle"
+              type="button"
+              onPointerDown={(e) => {
+                primeHaptics();
+                props.onPointerDownHandle(e);
+              }}
+              title="ドラッグで並び替え"
+              style={{
+                width: 32,
+                height: 28,
+                borderRadius: 6,
+                border: "1px dashed #d1d5db",
+                display: "grid",
+                placeItems: "center",
+                fontSize: 14,
+                color: "#6b7280",
+                background: "#fff",
+                touchAction: "none",
+                flexShrink: 0,
+              }}
+            >
+              ≡
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
