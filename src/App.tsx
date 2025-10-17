@@ -171,15 +171,12 @@ export default function App() {
   // 保存ボックスのキー（先に宣言）
   const STORAGEBOX_KEY = "shoppinglist2_storagebox";
   function z2(n: number) { return (n < 10 ? '0' : '') + n; }
+  function formatDate(timestamp: number) {
+    const d = new Date(timestamp);
+    return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
+  }
   function getNowString() {
-    const d = new Date();
-    return (
-      d.getFullYear() +
-      '-' + z2(d.getMonth() + 1) +
-      '-' + z2(d.getDate()) +
-      ' ' + z2(d.getHours()) +
-      ':' + z2(d.getMinutes())
-    );
+    return formatDate(Date.now());
   }
   
   // 現在のリストを保存ボックスに保存するヘルパー関数
@@ -1031,10 +1028,7 @@ export default function App() {
                   >
                     <div style={{fontWeight: 600, fontSize: 16, marginBottom: 4}}>
                       {/* 最終更新日時のみ表示 */}
-                      {(() => {
-                        const d = new Date(entry.savedAt);
-                        return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
-                      })()}
+                      {formatDate(entry.savedAt)}
                     </div>
                     <div style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6}}>
                       {entry.items.slice(0, 4).map((it: any, idx: number) => (
