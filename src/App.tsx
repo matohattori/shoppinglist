@@ -1713,6 +1713,7 @@ function StorageBoxListItem(props: {
   const { entry } = props;
   const [swipeX, setSwipeX] = useState(0);
   const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const [preventClick, setPreventClick] = useState(false);
 
   const handleSwipeStart = (e: React.PointerEvent) => {
     // Capture pointer for proper touch handling
@@ -1720,6 +1721,7 @@ function StorageBoxListItem(props: {
       (e.currentTarget as any).setPointerCapture?.(e.pointerId);
     } catch {}
     swipeStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+    setPreventClick(false);
   };
 
   const handleSwipeMove = (e: React.PointerEvent) => {
@@ -1732,6 +1734,7 @@ function StorageBoxListItem(props: {
       e.preventDefault();
       e.stopPropagation();
       setSwipeX(Math.min(deltaX, SWIPE_DELETE_THRESHOLD));
+      setPreventClick(true); // Prevent click if we're swiping
     }
   };
 
@@ -1745,21 +1748,33 @@ function StorageBoxListItem(props: {
     
     const deltaX = e.clientX - swipeStartRef.current.x;
     
-    // If we didn't swipe much, allow the click to work
-    if (Math.abs(deltaX) < 10) {
-      setSwipeX(0);
-      swipeStartRef.current = null;
-      return;
-    }
-    
+    // If we swiped far enough, delete
     if (swipeX >= SWIPE_DELETE_THRESHOLD) {
       e.preventDefault();
       e.stopPropagation();
       props.onDelete();
+      setPreventClick(true);
     }
     
+    // Reset swipe state
     setSwipeX(0);
     swipeStartRef.current = null;
+    
+    // Reset preventClick after a short delay
+    if (Math.abs(deltaX) < 10) {
+      setPreventClick(false);
+    } else {
+      setTimeout(() => setPreventClick(false), 100);
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (preventClick) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    props.onLoad();
   };
 
   return (
@@ -1827,7 +1842,7 @@ function StorageBoxListItem(props: {
       >
         <div
           style={{ flex: 1, cursor: 'pointer' }}
-          onClick={props.onLoad}
+          onClick={handleClick}
           title="このリストを表示"
         >
           <div style={{fontWeight: 600, fontSize: 16, marginBottom: 4}}>
