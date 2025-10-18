@@ -402,6 +402,7 @@ export default function App() {
     ALL_DONE_IMAGES[Math.floor(Math.random() * ALL_DONE_IMAGES.length)];
   useEffect(() => {
     if (allCheckedBlue) {
+      vibrateNow(50);
       const override = (window as any).__ALL_DONE_BG_URL as string | undefined;
       if (override) {
         setAllDoneUrl(override);
@@ -1567,6 +1568,7 @@ function Row(props: {
         !edit
           ? () => {
               primeHaptics();
+              vibrateNow(20);
               props.onToggleChecked();
             }
           : undefined
