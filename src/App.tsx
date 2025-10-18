@@ -59,9 +59,15 @@ function useSwipeToDelete(onDelete: () => void, enabled: boolean = true) {
         return;
       }
 
-      // If we're starting a swipe, prevent click
+      // If we're starting a swipe, prevent click and default behavior
       if (!swipeRef.current.started && Math.abs(dx) >= SWIPE_START_PX) {
         swipeRef.current.shouldPreventClick = true;
+        ev.preventDefault();
+      }
+
+      // Prevent default to avoid scrolling during horizontal swipe
+      if (swipeRef.current.started) {
+        ev.preventDefault();
       }
 
       swipeRef.current.started = true;
@@ -109,9 +115,9 @@ function useSwipeToDelete(onDelete: () => void, enabled: boolean = true) {
       swipeRef.current = null;
     };
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerCancel);
+    window.addEventListener("pointermove", handlePointerMove, { passive: false });
+    window.addEventListener("pointerup", handlePointerUp, { passive: false });
+    window.addEventListener("pointercancel", handlePointerCancel, { passive: false });
   };
 
   return {
@@ -1532,6 +1538,7 @@ function SavedListItem(props: {
     transform: `translateX(${swipeState.offsetX}px)`,
     transition: swipeState.swiping ? "none" : swipeState.deleting ? "transform 0.15s ease-out, opacity 0.1s ease-out" : "transform 0.2s ease-out",
     opacity: swipeState.deleting ? 0 : 1,
+    touchAction: 'none',
   };
 
   const redBarStyle: React.CSSProperties = {
@@ -1560,7 +1567,10 @@ function SavedListItem(props: {
       </div>
       
       {/* Sliding content */}
-      <div style={contentStyle} onPointerDown={onPointerDown}>
+      <div style={contentStyle} onPointerDown={(e) => {
+        e.preventDefault();
+        onPointerDown(e);
+      }}>
         <div
           style={{ flex: 1, cursor: 'pointer' }}
           onClick={onOpen}
@@ -1642,7 +1652,7 @@ function Row(props: {
     width: "100%",
     background: bgColor,
     boxSizing: "border-box",
-    touchAction: edit ? "none" : "pan-y",
+    touchAction: edit ? "none" : "none",
     height: ROW_H,
   };
 
@@ -1737,6 +1747,7 @@ function Row(props: {
         onClick={handleClick}
         onPointerDown={(e) => {
           if (!edit) {
+            e.preventDefault();
             onSwipePointerDown(e);
           }
         }}
