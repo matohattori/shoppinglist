@@ -1462,7 +1462,10 @@ export default function App() {
           onClick={() => {
             primeHaptics();
             endTyping();
-            setState((s) => ({ edit: !s.edit, items: s.items }));
+            setState((s) => ({
+              edit: !s.edit,
+              items: s.edit ? s.items.filter((it) => it.text.trim() !== "") : s.items
+            }));
           }}
           aria-pressed={state.edit}
           title={state.edit ? "編集モード（ON）" : "編集モード（OFF）"}
