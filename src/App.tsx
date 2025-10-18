@@ -10,6 +10,123 @@ export type Item = {
 };
 export type State = { edit: boolean; items: Item[] };
 
+// ========================= Swipe-to-Delete Hook =========================
+function useSwipeToDelete(onDelete: () => void, enabled: boolean = true) {
+  const [swipeState, setSwipeState] = useState<{
+    swiping: boolean;
+    offsetX: number;
+    deleting: boolean;
+  }>({ swiping: false, offsetX: 0, deleting: false });
+  const swipeRef = useRef<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    width: number;
+    started: boolean;
+    shouldPreventClick: boolean;
+  } | null>(null);
+
+  const SWIPE_THRESHOLD = 0.35; // 35% of width
+  const SWIPE_START_PX = 8;
+
+  const onPointerDown = (e: React.PointerEvent<HTMLElement>) => {
+    if (!enabled) return;
+    
+    const target = e.currentTarget;
+    const rect = target.getBoundingClientRect();
+    swipeRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      currentX: e.clientX,
+      width: rect.width,
+      started: false,
+      shouldPreventClick: false,
+    };
+
+    const handlePointerMove = (ev: PointerEvent) => {
+      if (!swipeRef.current) return;
+      const dx = ev.clientX - swipeRef.current.startX;
+      const dy = ev.clientY - swipeRef.current.startY;
+
+      // Check if movement threshold exceeded
+      if (!swipeRef.current.started && Math.abs(dx) < SWIPE_START_PX && Math.abs(dy) < SWIPE_START_PX) {
+        return;
+      }
+
+      // If vertical movement is more than horizontal, don't start swipe
+      if (!swipeRef.current.started && Math.abs(dy) > Math.abs(dx)) {
+        cleanup();
+        return;
+      }
+
+      // If we're starting a swipe, prevent click and default behavior
+      if (!swipeRef.current.started && Math.abs(dx) >= SWIPE_START_PX) {
+        swipeRef.current.shouldPreventClick = true;
+        ev.preventDefault();
+      }
+
+      // Prevent default to avoid scrolling during horizontal swipe
+      if (swipeRef.current.started) {
+        ev.preventDefault();
+      }
+
+      swipeRef.current.started = true;
+      swipeRef.current.currentX = ev.clientX;
+
+      // Only allow right swipe (positive dx)
+      const offset = Math.max(0, dx);
+      setSwipeState({ swiping: true, offsetX: offset, deleting: false });
+    };
+
+    const cleanup = () => {
+      if (!swipeRef.current) return;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+    };
+
+    const handlePointerUp = () => {
+      if (!swipeRef.current) return;
+      const dx = swipeRef.current.currentX - swipeRef.current.startX;
+      const threshold = swipeRef.current.width * SWIPE_THRESHOLD;
+
+      if (dx > threshold) {
+        // Trigger delete
+        setSwipeState({ swiping: false, offsetX: swipeRef.current.width, deleting: true });
+        setTimeout(() => {
+          onDelete();
+          setSwipeState({ swiping: false, offsetX: 0, deleting: false });
+        }, 200); // Wait for slide-out animation
+      } else {
+        // Return to original position
+        setSwipeState({ swiping: false, offsetX: 0, deleting: false });
+      }
+
+      cleanup();
+      // Keep the ref for a moment to allow click handler to check shouldPreventClick
+      setTimeout(() => {
+        swipeRef.current = null;
+      }, 0);
+    };
+
+    const handlePointerCancel = () => {
+      setSwipeState({ swiping: false, offsetX: 0, deleting: false });
+      cleanup();
+      swipeRef.current = null;
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: false });
+    window.addEventListener("pointerup", handlePointerUp, { passive: false });
+    window.addEventListener("pointercancel", handlePointerCancel, { passive: false });
+  };
+
+  return {
+    swipeState,
+    onPointerDown,
+    shouldPreventClick: () => swipeRef.current?.shouldPreventClick ?? false,
+  };
+}
+
 const STORAGE_KEY = "shopping_list_v1_react";
 const HISTORY_LIMIT = 10;
 const ROW_SPACING = 6; // px between rows (margin-top for rows except first)
@@ -616,35 +733,7 @@ export default function App() {
     []
   );
 
-  // 保存ボックス削除（二段階）
-  const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
-  const deleteTimerRef = useRef<number | null>(null);
   const [storageBoxRefreshKey, setStorageBoxRefreshKey] = useState(0);
-  const armDelete = (id: string) => {
-    setDeleteArmedId(id);
-    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-    deleteTimerRef.current = window.setTimeout(
-      () => setDeleteArmedId(null),
-      ARM_TIMEOUT_MS
-    );
-  };
-  const doDelete = (id: string) => {
-    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-    const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
-    if (!boxRaw) return;
-    let box = JSON.parse(boxRaw);
-    box = box.filter((b: any) => b.id !== id);
-    localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
-    setDeleteArmedId(null);
-    // 再レンダリングを強制するためにキーを更新
-    setStorageBoxRefreshKey(prev => prev + 1);
-  };
-  useEffect(
-    () => () => {
-      if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-    },
-    []
-  );
 
   // ===== DnD（未チェック側のみ） =====
   const onPointerDownHandle = (
@@ -1040,92 +1129,24 @@ export default function App() {
                 <div style={{color: '#888', textAlign: 'center'}}>保存されたリストはありません</div>
               )}
               {[...getStorageBoxList()].sort((a, b) => b.savedAt - a.savedAt).map((entry: any) => (
-                <div
+                <SavedListItem
                   key={entry.id}
-                  style={{
-                    border: '1px solid #e5e7eb',
-                    borderRadius: 10,
-                    padding: '10px 12px',
-                    background: '#f8fafc',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
+                  entry={entry}
+                  onDelete={() => {
+                    const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
+                    if (!boxRaw) return;
+                    let box = JSON.parse(boxRaw);
+                    box = box.filter((b: any) => b.id !== entry.id);
+                    localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+                    setStorageBoxRefreshKey(prev => prev + 1);
                   }}
-                >
-                  <div
-                    style={{ flex: 1, cursor: 'pointer' }}
-                    onClick={() => {
-                      // 既存リストを保存ボックスに保存してから読み込む
-                      saveCurrentListToBox();
-                      setState({ edit: true, items: entry.items });
-                      setCurrentStorageBoxId(entry.id);
-                      setShowStorageBox(false);
-                    }}
-                    title="このリストを表示"
-                  >
-                    <div style={{fontWeight: 600, fontSize: 16, marginBottom: 4}}>
-                      {/* 最終更新日時のみ表示 */}
-                      {(() => {
-                        const d = new Date(entry.savedAt);
-                        const z2 = (n: number) => (n < 10 ? '0' : '') + n;
-                        return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
-                      })()}
-                    </div>
-                    <div style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6}}>
-                      {entry.items.slice(0, 4).map((it: any, idx: number) => (
-                        <span key={idx} style={{
-                          background: '#fff',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: 6,
-                          padding: '2px 8px',
-                          marginRight: 2,
-                          maxWidth: 100,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          display: 'inline-block',
-                        }}>{it.text}</span>
-                      ))}
-                      {entry.items.length > 4 && <span style={{color: '#aaa'}}>…</span>}
-                    </div>
-                  </div>
-                  {/* 削除ボタン */}
-                  <button
-                    onClick={e => {
-                      e.stopPropagation();
-                      const isArmed = deleteArmedId === entry.id;
-                      if (isArmed) {
-                        doDelete(entry.id);
-                      } else {
-                        armDelete(entry.id);
-                      }
-                    }}
-                    title={deleteArmedId === entry.id ? "削除を実行" : "このリストを削除"}
-                    aria-label={deleteArmedId === entry.id ? "削除を実行" : "このリストを削除"}
-                    style={{
-                      background: deleteArmedId === entry.id ? '#ef4444' : 'none',
-                      border: deleteArmedId === entry.id ? '1px solid #ef4444' : 'none',
-                      cursor: 'pointer',
-                      padding: deleteArmedId === entry.id ? '4px 8px' : 4,
-                      marginLeft: 4,
-                      color: deleteArmedId === entry.id ? '#fff' : '#e11d48',
-                      display: 'flex',
-                      alignItems: 'center',
-                      borderRadius: 6,
-                      fontWeight: deleteArmedId === entry.id ? 600 : 'normal',
-                      fontSize: deleteArmedId === entry.id ? 12 : undefined,
-                    }}
-                  >
-                    {deleteArmedId === entry.id ? (
-                      'DELETE'
-                    ) : (
-                      /* ×マークピクトグラム */
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    )}
-                  </button>
-                </div>
+                  onOpen={() => {
+                    saveCurrentListToBox();
+                    setState({ edit: true, items: entry.items });
+                    setCurrentStorageBoxId(entry.id);
+                    setShowStorageBox(false);
+                  }}
+                />
               ))}
             </div>
           </div>
@@ -1508,6 +1529,103 @@ export default function App() {
   );
 }
 
+// ========================= SavedListItem Component =========================
+function SavedListItem(props: {
+  entry: any;
+  onDelete: () => void;
+  onOpen: () => void;
+}) {
+  const { entry, onDelete, onOpen } = props;
+  const { swipeState, onPointerDown } = useSwipeToDelete(onDelete);
+
+  const wrapperStyle: React.CSSProperties = {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 10,
+  };
+
+  const contentStyle: React.CSSProperties = {
+    border: '1px solid #e5e7eb',
+    borderRadius: 10,
+    padding: '10px 12px',
+    background: '#f8fafc',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    transform: `translateX(${swipeState.offsetX}px)`,
+    transition: swipeState.swiping ? "none" : swipeState.deleting ? "transform 0.15s ease-out, opacity 0.1s ease-out" : "transform 0.2s ease-out",
+    opacity: swipeState.deleting ? 0 : 1,
+    touchAction: 'none',
+  };
+
+  const redBarStyle: React.CSSProperties = {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: '100%',
+    background: '#ef4444',
+    display: 'flex',
+    alignItems: 'center',
+    paddingLeft: 16,
+    borderRadius: 10,
+  };
+
+  return (
+    <div style={wrapperStyle}>
+      {/* Red background bar with trash icon */}
+      <div style={redBarStyle}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          <line x1="10" y1="11" x2="10" y2="17" />
+          <line x1="14" y1="11" x2="14" y2="17" />
+        </svg>
+      </div>
+      
+      {/* Sliding content */}
+      <div style={contentStyle} onPointerDown={(e) => {
+        e.preventDefault();
+        onPointerDown(e);
+      }}>
+        <div
+          style={{ flex: 1, cursor: 'pointer' }}
+          onClick={onOpen}
+          title="このリストを表示"
+        >
+          <div style={{fontWeight: 600, fontSize: 16, marginBottom: 4}}>
+            {/* 最終更新日時のみ表示 */}
+            {(() => {
+              const d = new Date(entry.savedAt);
+              const z2 = (n: number) => (n < 10 ? '0' : '') + n;
+              return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
+            })()}
+          </div>
+          <div style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6}}>
+            {entry.items.slice(0, 4).map((it: any, idx: number) => (
+              <span key={idx} style={{
+                background: '#fff',
+                border: '1px solid #e5e7eb',
+                borderRadius: 6,
+                padding: '2px 8px',
+                marginRight: 2,
+                maxWidth: 100,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                display: 'inline-block',
+              }}>{it.text}</span>
+            ))}
+            {entry.items.length > 4 && <span style={{color: '#aaa'}}>…</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Row(props: {
   item: Item;
   index: number;
@@ -1523,6 +1641,7 @@ function Row(props: {
 }) {
   const { item, index, edit, allCheckedBlue } = props;
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  
   // 固定行高に合わせる（自己伸長はしない・垂直中央）
   useEffect(() => {
     const ta = taRef.current;
