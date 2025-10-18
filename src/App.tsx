@@ -398,21 +398,28 @@ export default function App() {
 
   // 全チェック時の背景画像（5枚からランダム選択、遷移時に決定）
   const [allDoneUrl, setAllDoneUrl] = useState<string | null>(null);
+  const prevAllCheckedRef = useRef<boolean>(false);
   const pickRandomAllDone = () =>
     ALL_DONE_IMAGES[Math.floor(Math.random() * ALL_DONE_IMAGES.length)];
   useEffect(() => {
     if (allCheckedBlue) {
+      // Only vibrate when transitioning from incomplete to complete
+      if (!prevAllCheckedRef.current) {
+        vibrateNow([50, 100, 50]);
+      }
       const override = (window as any).__ALL_DONE_BG_URL as string | undefined;
       if (override) {
         setAllDoneUrl(override);
-        return;
+      } else {
+        const ready: Set<string> | undefined = (window as any).__ALL_DONE_READY__;
+        const pool = ready && ready.size ? Array.from(ready) : ALL_DONE_IMAGES;
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        setAllDoneUrl(pick);
       }
-      const ready: Set<string> | undefined = (window as any).__ALL_DONE_READY__;
-      const pool = ready && ready.size ? Array.from(ready) : ALL_DONE_IMAGES;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      setAllDoneUrl(pick);
+      prevAllCheckedRef.current = true;
     } else {
       setAllDoneUrl(null);
+      prevAllCheckedRef.current = false;
     }
   }, [allCheckedBlue]);
 
@@ -1567,6 +1574,7 @@ function Row(props: {
         !edit
           ? () => {
               primeHaptics();
+              vibrateNow(20);
               props.onToggleChecked();
             }
           : undefined
