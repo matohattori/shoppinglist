@@ -428,27 +428,31 @@ export default function App() {
 
   // チェック状態をトグルする
   const toggleCheckedById = (id: string) => {
-    setState((prev: State) => ({
-      ...prev,
-      items: prev.items.map((it) =>
-        it.id === id 
-          ? { ...it, checked: !it.checked, _checkedAt: !it.checked ? Date.now() : it._checkedAt }
-          : it
-      ),
-    }));
-    
-    // 非編集モードでチェックした場合、チェック済みエリアを最下部にスクロール
-    if (!state.edit) {
-      const item = state.items.find(it => it.id === id);
-      if (item && !item.checked) {
-        // チェックを付ける場合のみスクロール（チェックを外す場合はスクロールしない）
+    setState((prev: State) => {
+      const item = prev.items.find(it => it.id === id);
+      const newChecked = item ? !item.checked : false;
+      const shouldScroll = !prev.edit && item && !item.checked; // 非編集モードで、未チェック→チェック済みにする場合
+      
+      const newState = {
+        ...prev,
+        items: prev.items.map((it) =>
+          it.id === id 
+            ? { ...it, checked: newChecked, _checkedAt: newChecked ? Date.now() : it._checkedAt }
+            : it
+        ),
+      };
+      
+      // チェック済みエリアを最下部にスクロール
+      if (shouldScroll) {
         setTimeout(() => {
           if (checkedWrapRef.current) {
             checkedWrapRef.current.scrollTop = checkedWrapRef.current.scrollHeight;
           }
         }, 0);
       }
-    }
+      
+      return newState;
+    });
   };
 
   // タイピング終了処理
