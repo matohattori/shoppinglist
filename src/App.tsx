@@ -1622,7 +1622,6 @@ function Row(props: {
 }) {
   const { item, index, edit, allCheckedBlue } = props;
   const taRef = useRef<HTMLTextAreaElement | null>(null);
-  const { swipeState, onPointerDown: onSwipePointerDown, shouldPreventClick } = useSwipeToDelete(props.onDelete, !edit);
   
   // 固定行高に合わせる（自己伸長はしない・垂直中央）
   useEffect(() => {
@@ -1652,7 +1651,7 @@ function Row(props: {
     width: "100%",
     background: bgColor,
     boxSizing: "border-box",
-    touchAction: edit ? "none" : "none",
+    touchAction: "none",
     height: ROW_H,
   };
 
@@ -1687,191 +1686,166 @@ function Row(props: {
     );
   }
 
-  // Wrapper for swipe-to-delete
-  const wrapperStyle: React.CSSProperties = {
-    position: "relative",
-    marginTop: index === 0 ? 0 : ROW_SPACING,
-    overflow: "hidden",
-    borderRadius: 10,
-  };
-
-  const contentStyle: React.CSSProperties = {
-    ...rowStyle,
-    marginTop: 0,
-    transform: `translateX(${swipeState.offsetX}px)`,
-    transition: swipeState.swiping ? "none" : swipeState.deleting ? "transform 0.15s ease-out, opacity 0.1s ease-out" : "transform 0.2s ease-out",
-    opacity: swipeState.deleting ? 0 : 1,
-  };
-
-  const redBarStyle: React.CSSProperties = {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: "100%",
-    background: "#ef4444",
-    display: "flex",
-    alignItems: "center",
-    paddingLeft: 16,
-    borderRadius: 10,
-  };
-
-  const handleClick = () => {
-    if (!edit && !shouldPreventClick()) {
-      primeHaptics();
-      vibrateNow(20);
-      props.onToggleChecked();
-    }
-  };
-
   return (
-    <div style={wrapperStyle}>
-      {/* Red background bar with trash icon - only show in non-edit mode */}
-      {!edit && (
-        <div style={redBarStyle}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="3 6 5 6 21 6" />
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            <line x1="10" y1="11" x2="10" y2="17" />
-            <line x1="14" y1="11" x2="14" y2="17" />
-          </svg>
-        </div>
+    <div
+      className="row"
+      data-id={item.id}
+      data-index={index}
+      style={rowStyle}
+      onClick={
+        !edit
+          ? () => {
+              primeHaptics();
+              vibrateNow(20);
+              props.onToggleChecked();
+            }
+          : undefined
+      }
+    >
+      {edit && (
+        <button
+          type="button"
+          title="この行を削除"
+          aria-label="この行を削除"
+          onClick={(e) => {
+            e.stopPropagation();
+            primeHaptics();
+            props.onDelete();
+          }}
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 6,
+            border: "1px solid #e5e7eb",
+            background: "#fff",
+            flexShrink: 0,
+            display: "grid",
+            placeItems: "center",
+            fontSize: 14,
+          }}
+        >
+          ✖
+        </button>
       )}
-      
-      {/* Sliding content */}
-      <div
-        className="row"
-        data-id={item.id}
-        data-index={index}
-        style={contentStyle}
-        onClick={handleClick}
-        onPointerDown={(e) => {
-          if (!edit) {
+      <textarea
+        ref={taRef}
+        value={item.text}
+        readOnly={!edit}
+        onInput={(e) =>
+          props.onInput(
+            (e.target as HTMLTextAreaElement).value,
+            e.currentTarget
+          )
+        }
+        onKeyDown={(e) => {
+          if (edit && e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            onSwipePointerDown(e);
+            props.onEnter();
           }
         }}
-      >
-        <textarea
-          ref={taRef}
-          value={item.text}
-          readOnly={!edit}
-          onInput={(e) =>
-            props.onInput(
-              (e.target as HTMLTextAreaElement).value,
-              e.currentTarget
-            )
-          }
-          onKeyDown={(e) => {
-            if (edit && e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              props.onEnter();
+        onPaste={(e) => {
+          if (!edit) return;
+          const data = e.clipboardData || (window as any).clipboardData;
+          const text = data?.getData?.("text") ?? "";
+          if (!text || !text.includes("\n")) return;
+          e.preventDefault();
+          const ta = e.currentTarget as HTMLTextAreaElement;
+          const pos = ta.selectionStart ?? ta.value.length;
+          const { first, rest } = pasteMerge(ta.value, pos, text);
+          props.onInput(first, ta);
+          try {
+            const appSet = (window as any).__setAppState;
+            const appGet = (window as any).__getAppState;
+            if (appSet && appGet) {
+              const s: State = appGet();
+              const row = ta.closest(".row") as HTMLElement | null;
+              const id = row?.getAttribute("data-id") || "";
+              const idx = s.items.findIndex((it: Item) => it.id === id);
+              if (idx < 0) return;
+              const inserts = rest.map((l: string) => ({
+                id: uid(),
+                text: l,
+                checked: false,
+              }));
+              const next = [...s.items];
+              next[idx] = { ...next[idx], text: first };
+              if (inserts.length) next.splice(idx + 1, 0, ...inserts);
+              appSet({ edit: s.edit, items: next });
+              setTimeout(() => {
+                const lastId = inserts.length
+                  ? inserts[inserts.length - 1].id
+                  : next[idx].id;
+                const focusTa = document.querySelector(
+                  `.row[data-id="${lastId}"] textarea`
+                ) as HTMLTextAreaElement | null;
+                focusTa?.focus();
+                focusTa?.setSelectionRange(
+                  focusTa.value.length,
+                  focusTa.value.length
+                );
+              }, 0);
             }
-          }}
-          onPaste={(e) => {
-            if (!edit) return;
-            const data = e.clipboardData || (window as any).clipboardData;
-            const text = data?.getData?.("text") ?? "";
-            if (!text || !text.includes("\n")) return;
-            e.preventDefault();
-            const ta = e.currentTarget as HTMLTextAreaElement;
-            const pos = ta.selectionStart ?? ta.value.length;
-            const { first, rest } = pasteMerge(ta.value, pos, text);
-            props.onInput(first, ta);
-            try {
-              const appSet = (window as any).__setAppState;
-              const appGet = (window as any).__getAppState;
-              if (appSet && appGet) {
-                const s: State = appGet();
-                const row = ta.closest(".row") as HTMLElement | null;
-                const id = row?.getAttribute("data-id") || "";
-                const idx = s.items.findIndex((it: Item) => it.id === id);
-                if (idx < 0) return;
-                const inserts = rest.map((l: string) => ({
-                  id: uid(),
-                  text: l,
-                  checked: false,
-                }));
-                const next = [...s.items];
-                next[idx] = { ...next[idx], text: first };
-                if (inserts.length) next.splice(idx + 1, 0, ...inserts);
-                appSet({ edit: s.edit, items: next });
-                setTimeout(() => {
-                  const lastId = inserts.length
-                    ? inserts[inserts.length - 1].id
-                    : next[idx].id;
-                  const focusTa = document.querySelector(
-                    `.row[data-id="${lastId}"] textarea`
-                  ) as HTMLTextAreaElement | null;
-                  focusTa?.focus();
-                  focusTa?.setSelectionRange(
-                    focusTa.value.length,
-                    focusTa.value.length
-                  );
-                }, 0);
-              }
-            } catch {}
-          }}
-          spellCheck={false}
+          } catch {}
+        }}
+        spellCheck={false}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          border: "none",
+          outline: "none",
+          resize: "none",
+          background: "transparent",
+          textDecoration: item.checked ? "line-through" : "none",
+          padding: 0,
+        }}
+      />
+      {edit && !item.checked && (
+        <div
           style={{
-            flex: 1,
-            minWidth: 0,
-            border: "none",
-            outline: "none",
-            resize: "none",
-            background: "transparent",
-            textDecoration: item.checked ? "line-through" : "none",
-            padding: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flexShrink: 0,
+            whiteSpace: "nowrap",
           }}
-        />
-        {edit && !item.checked && (
-          <div
+        >
+          <input
+            className="select"
+            type="checkbox"
+            checked={!!item._selected}
+            onChange={(e) => props.onToggleSelected(e.target.checked)}
+            onPointerDown={(e) => {
+              primeHaptics();
+              props.onPointerDownHandle(e);
+            }}
+            style={{ width: 20, height: 20 }}
+          />
+          <button
+            className="handle"
+            type="button"
+            onPointerDown={(e) => {
+              primeHaptics();
+              props.onPointerDownHandle(e);
+            }}
+            title="ドラッグで並び替え"
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
+              width: 32,
+              height: 28,
+              borderRadius: 6,
+              border: "1px dashed #d1d5db",
+              display: "grid",
+              placeItems: "center",
+              fontSize: 14,
+              color: "#6b7280",
+              background: "#fff",
+              touchAction: "none",
               flexShrink: 0,
-              whiteSpace: "nowrap",
             }}
           >
-            <input
-              className="select"
-              type="checkbox"
-              checked={!!item._selected}
-              onChange={(e) => props.onToggleSelected(e.target.checked)}
-              onPointerDown={(e) => {
-                primeHaptics();
-                props.onPointerDownHandle(e);
-              }}
-              style={{ width: 20, height: 20 }}
-            />
-            <button
-              className="handle"
-              type="button"
-              onPointerDown={(e) => {
-                primeHaptics();
-                props.onPointerDownHandle(e);
-              }}
-              title="ドラッグで並び替え"
-              style={{
-                width: 32,
-                height: 28,
-                borderRadius: 6,
-                border: "1px dashed #d1d5db",
-                display: "grid",
-                placeItems: "center",
-                fontSize: 14,
-                color: "#6b7280",
-                background: "#fff",
-                touchAction: "none",
-                flexShrink: 0,
-              }}
-            >
-              ≡
-            </button>
-          </div>
-        )}
-      </div>
+            ≡
+          </button>
+        </div>
+      )}
     </div>
   );
 }
