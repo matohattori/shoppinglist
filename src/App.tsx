@@ -410,13 +410,12 @@ export default function App() {
       const override = (window as any).__ALL_DONE_BG_URL as string | undefined;
       if (override) {
         setAllDoneUrl(override);
-        prevAllCheckedRef.current = true;
-        return;
+      } else {
+        const ready: Set<string> | undefined = (window as any).__ALL_DONE_READY__;
+        const pool = ready && ready.size ? Array.from(ready) : ALL_DONE_IMAGES;
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        setAllDoneUrl(pick);
       }
-      const ready: Set<string> | undefined = (window as any).__ALL_DONE_READY__;
-      const pool = ready && ready.size ? Array.from(ready) : ALL_DONE_IMAGES;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      setAllDoneUrl(pick);
       prevAllCheckedRef.current = true;
     } else {
       setAllDoneUrl(null);
