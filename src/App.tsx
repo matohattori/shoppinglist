@@ -405,7 +405,7 @@ export default function App() {
     if (allCheckedBlue) {
       // Only vibrate when transitioning from incomplete to complete
       if (!prevAllCheckedRef.current) {
-        vibrateNow(50);
+        vibrateNow([50, 100, 50]);
       }
       const override = (window as any).__ALL_DONE_BG_URL as string | undefined;
       if (override) {
