@@ -1033,7 +1033,7 @@ export default function App() {
                     onClick={() => {
                       // 既存リストを保存ボックスに保存してから読み込む
                       saveCurrentListToBox();
-                      setState({ edit: true, items: entry.items });
+                      setState({ edit: state.edit, items: entry.items });
                       setCurrentStorageBoxId(entry.id);
                       setShowStorageBox(false);
                     }}
