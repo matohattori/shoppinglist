@@ -1416,6 +1416,10 @@ function Row(props: {
   // Swipe handlers
   const handleSwipeStart = (e: React.PointerEvent) => {
     if (!edit || item.checked) return;
+    // Capture pointer for proper touch handling
+    try {
+      (e.currentTarget as any).setPointerCapture?.(e.pointerId);
+    } catch {}
     swipeStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
   };
 
@@ -1424,15 +1428,20 @@ function Row(props: {
     const deltaX = e.clientX - swipeStartRef.current.x;
     const deltaY = e.clientY - swipeStartRef.current.y;
     
-    // Only horizontal swipe to the right
-    if (deltaX > 0 && Math.abs(deltaX) > Math.abs(deltaY) * SWIPE_DIRECTION_RATIO) {
+    // Only horizontal swipe to the right (with minimum distance)
+    if (deltaX > 10 && Math.abs(deltaX) > Math.abs(deltaY) * SWIPE_DIRECTION_RATIO) {
       e.preventDefault();
       e.stopPropagation();
       setSwipeX(Math.min(deltaX, SWIPE_DELETE_THRESHOLD));
     }
   };
 
-  const handleSwipeEnd = () => {
+  const handleSwipeEnd = (e: React.PointerEvent) => {
+    // Release pointer capture
+    try {
+      (e.currentTarget as any).releasePointerCapture?.(e.pointerId);
+    } catch {}
+    
     if (!swipeStartRef.current || !edit) return;
     
     if (swipeX >= SWIPE_DELETE_THRESHOLD) {
@@ -1561,83 +1570,88 @@ function Row(props: {
               }
             : undefined
         }
-        onPointerDown={handleSwipeStart}
-        onPointerMove={handleSwipeMove}
-        onPointerUp={handleSwipeEnd}
-        onPointerCancel={handleSwipeEnd}
       >
-        <textarea
-          ref={taRef}
-          value={item.text}
-          readOnly={!edit}
-          onInput={(e) =>
-            props.onInput(
-              (e.target as HTMLTextAreaElement).value,
-              e.currentTarget
-            )
-          }
-          onKeyDown={(e) => {
-            if (edit && e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              props.onEnter();
+        {/* Textarea wrapper with swipe handlers */}
+        <div
+          style={{ flex: 1, minWidth: 0, display: 'flex' }}
+          onPointerDown={handleSwipeStart}
+          onPointerMove={handleSwipeMove}
+          onPointerUp={handleSwipeEnd}
+          onPointerCancel={handleSwipeEnd}
+        >
+          <textarea
+            ref={taRef}
+            value={item.text}
+            readOnly={!edit}
+            onInput={(e) =>
+              props.onInput(
+                (e.target as HTMLTextAreaElement).value,
+                e.currentTarget
+              )
             }
-          }}
-          onPaste={(e) => {
-            if (!edit) return;
-            const data = e.clipboardData || (window as any).clipboardData;
-            const text = data?.getData?.("text") ?? "";
-            if (!text || !text.includes("\n")) return;
-            e.preventDefault();
-            const ta = e.currentTarget as HTMLTextAreaElement;
-            const pos = ta.selectionStart ?? ta.value.length;
-            const { first, rest } = pasteMerge(ta.value, pos, text);
-            props.onInput(first, ta);
-            try {
-              const appSet = (window as any).__setAppState;
-              const appGet = (window as any).__getAppState;
-              if (appSet && appGet) {
-                const s: State = appGet();
-                const row = ta.closest(".row") as HTMLElement | null;
-                const id = row?.getAttribute("data-id") || "";
-                const idx = s.items.findIndex((it: Item) => it.id === id);
-                if (idx < 0) return;
-                const inserts = rest.map((l: string) => ({
-                  id: uid(),
-                  text: l,
-                  checked: false,
-                }));
-                const next = [...s.items];
-                next[idx] = { ...next[idx], text: first };
-                if (inserts.length) next.splice(idx + 1, 0, ...inserts);
-                appSet({ edit: s.edit, items: next });
-                setTimeout(() => {
-                  const lastId = inserts.length
-                    ? inserts[inserts.length - 1].id
-                    : next[idx].id;
-                  const focusTa = document.querySelector(
-                    `.row[data-id="${lastId}"] textarea`
-                  ) as HTMLTextAreaElement | null;
-                  focusTa?.focus();
-                  focusTa?.setSelectionRange(
-                    focusTa.value.length,
-                    focusTa.value.length
-                  );
-                }, 0);
+            onKeyDown={(e) => {
+              if (edit && e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                props.onEnter();
               }
-            } catch {}
-          }}
-          spellCheck={false}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            border: "none",
-            outline: "none",
-            resize: "none",
-            background: "transparent",
-            textDecoration: item.checked ? "line-through" : "none",
-            padding: 0,
-          }}
-        />
+            }}
+            onPaste={(e) => {
+              if (!edit) return;
+              const data = e.clipboardData || (window as any).clipboardData;
+              const text = data?.getData?.("text") ?? "";
+              if (!text || !text.includes("\n")) return;
+              e.preventDefault();
+              const ta = e.currentTarget as HTMLTextAreaElement;
+              const pos = ta.selectionStart ?? ta.value.length;
+              const { first, rest } = pasteMerge(ta.value, pos, text);
+              props.onInput(first, ta);
+              try {
+                const appSet = (window as any).__setAppState;
+                const appGet = (window as any).__getAppState;
+                if (appSet && appGet) {
+                  const s: State = appGet();
+                  const row = ta.closest(".row") as HTMLElement | null;
+                  const id = row?.getAttribute("data-id") || "";
+                  const idx = s.items.findIndex((it: Item) => it.id === id);
+                  if (idx < 0) return;
+                  const inserts = rest.map((l: string) => ({
+                    id: uid(),
+                    text: l,
+                    checked: false,
+                  }));
+                  const next = [...s.items];
+                  next[idx] = { ...next[idx], text: first };
+                  if (inserts.length) next.splice(idx + 1, 0, ...inserts);
+                  appSet({ edit: s.edit, items: next });
+                  setTimeout(() => {
+                    const lastId = inserts.length
+                      ? inserts[inserts.length - 1].id
+                      : next[idx].id;
+                    const focusTa = document.querySelector(
+                      `.row[data-id="${lastId}"] textarea`
+                    ) as HTMLTextAreaElement | null;
+                    focusTa?.focus();
+                    focusTa?.setSelectionRange(
+                      focusTa.value.length,
+                      focusTa.value.length
+                    );
+                  }, 0);
+                }
+              } catch {}
+            }}
+            spellCheck={false}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              border: "none",
+              outline: "none",
+              resize: "none",
+              background: "transparent",
+              textDecoration: item.checked ? "line-through" : "none",
+              padding: 0,
+            }}
+          />
+        </div>
         {edit && !item.checked && (
           <div
             style={{
@@ -1701,6 +1715,10 @@ function StorageBoxListItem(props: {
   const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   const handleSwipeStart = (e: React.PointerEvent) => {
+    // Capture pointer for proper touch handling
+    try {
+      (e.currentTarget as any).setPointerCapture?.(e.pointerId);
+    } catch {}
     swipeStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
   };
 
@@ -1710,17 +1728,33 @@ function StorageBoxListItem(props: {
     const deltaY = e.clientY - swipeStartRef.current.y;
     
     // Only horizontal swipe to the right
-    if (deltaX > 0 && Math.abs(deltaX) > Math.abs(deltaY) * SWIPE_DIRECTION_RATIO) {
+    if (deltaX > 10 && Math.abs(deltaX) > Math.abs(deltaY) * SWIPE_DIRECTION_RATIO) {
       e.preventDefault();
       e.stopPropagation();
       setSwipeX(Math.min(deltaX, SWIPE_DELETE_THRESHOLD));
     }
   };
 
-  const handleSwipeEnd = () => {
+  const handleSwipeEnd = (e: React.PointerEvent) => {
+    // Release pointer capture
+    try {
+      (e.currentTarget as any).releasePointerCapture?.(e.pointerId);
+    } catch {}
+    
     if (!swipeStartRef.current) return;
     
+    const deltaX = e.clientX - swipeStartRef.current.x;
+    
+    // If we didn't swipe much, allow the click to work
+    if (Math.abs(deltaX) < 10) {
+      setSwipeX(0);
+      swipeStartRef.current = null;
+      return;
+    }
+    
     if (swipeX >= SWIPE_DELETE_THRESHOLD) {
+      e.preventDefault();
+      e.stopPropagation();
       props.onDelete();
     }
     
