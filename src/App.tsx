@@ -431,9 +431,24 @@ export default function App() {
     setState((prev: State) => ({
       ...prev,
       items: prev.items.map((it) =>
-        it.id === id ? { ...it, checked: !it.checked } : it
+        it.id === id 
+          ? { ...it, checked: !it.checked, _checkedAt: !it.checked ? Date.now() : it._checkedAt }
+          : it
       ),
     }));
+    
+    // 非編集モードでチェックした場合、チェック済みエリアを最下部にスクロール
+    if (!state.edit) {
+      const item = state.items.find(it => it.id === id);
+      if (item && !item.checked) {
+        // チェックを付ける場合のみスクロール（チェックを外す場合はスクロールしない）
+        setTimeout(() => {
+          if (checkedWrapRef.current) {
+            checkedWrapRef.current.scrollTop = checkedWrapRef.current.scrollHeight;
+          }
+        }, 0);
+      }
+    }
   };
 
   // タイピング終了処理
