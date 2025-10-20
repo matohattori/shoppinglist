@@ -293,6 +293,22 @@ export default function App() {
       
       const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
       const box = boxRaw ? JSON.parse(boxRaw) : [];
+      
+      // 保存済みリストを編集中の場合は上書き保存
+      if (currentStorageBoxId) {
+        const idx = box.findIndex((e: any) => e.id === currentStorageBoxId);
+        if (idx !== -1) {
+          box[idx] = {
+            ...box[idx],
+            items: validItems,
+            savedAt: Date.now(),
+          };
+          localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+          return;
+        }
+      }
+      
+      // 新規保存
       const title = getNowString();
       const entry = {
         id: uid(),
@@ -593,7 +609,24 @@ export default function App() {
       }
       const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
       const box = boxRaw ? JSON.parse(boxRaw) : [];
-      // タイトル自動生成
+      
+      // 保存済みリストを編集中の場合は上書き保存
+      if (currentStorageBoxId) {
+        const idx = box.findIndex((e: any) => e.id === currentStorageBoxId);
+        if (idx !== -1) {
+          box[idx] = {
+            ...box[idx],
+            items: validItems,
+            savedAt: Date.now(),
+          };
+          localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+          setSaveDone(true);
+          setTimeout(() => setSaveDone(false), 1000); // 1秒で戻す
+          return;
+        }
+      }
+      
+      // 新規保存
       const title = getNowString();
       const entry = {
         id: uid(),
