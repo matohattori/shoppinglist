@@ -8,7 +8,7 @@ export type Item = {
   _selected?: boolean;
   _checkedAt?: number;
 };
-export type State = { edit: boolean; items: Item[] };
+export type State = { edit: boolean; items: Item[]; listId?: string };
 
 // ========================= Swipe-to-Delete Hook =========================
 function useSwipeToDelete(onDelete: () => void, enabled: boolean = true) {
@@ -293,15 +293,35 @@ export default function App() {
       
       const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
       const box = boxRaw ? JSON.parse(boxRaw) : [];
+      
+      // 現在のリストにIDがあり、保存ボックスに同じIDのリストがある場合は上書き保存
+      if (state.listId) {
+        const idx = box.findIndex((e: any) => e.id === state.listId);
+        if (idx !== -1) {
+          box[idx] = {
+            ...box[idx],
+            items: validItems,
+            savedAt: Date.now(),
+          };
+          localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+          return;
+        }
+      }
+      
+      // 新規保存: 新しいIDを発行して保存
+      const newId = uid();
       const title = getNowString();
       const entry = {
-        id: uid(),
+        id: newId,
         title,
         savedAt: Date.now(),
         items: validItems,
       };
       box.unshift(entry);
       localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+      
+      // 保存後、このリストのIDを設定（次回保存時に上書き保存される）
+      setState(prev => ({ ...prev, listId: newId }));
     } catch (e) {
       console.error("保存に失敗しました:", e);
     }
@@ -311,7 +331,7 @@ export default function App() {
   const handleNewList = () => {
     // 既存リストを保存ボックスに保存してから新規リスト作成
     saveCurrentListToBox();
-    setState({ edit: true, items: [{ id: uid(), text: "", checked: false }] });
+    setState({ edit: true, items: [{ id: uid(), text: "", checked: false }], listId: undefined });
     setCurrentStorageBoxId(null);
     // 一番上のアイテムにフォーカス
     setTimeout(() => {
@@ -356,22 +376,24 @@ export default function App() {
           return {
             edit: typeof obj.edit === 'boolean' ? obj.edit : true,
             items: obj.items,
+            listId: obj.listId, // リストIDも復元
           };
         }
       }
     } catch {}
     return { edit: true, items: [{ id: uid(), text: "", checked: false }] };
   })());
-  // showStorageBox, state.edit, state.items を変更のたび保存
+  // showStorageBox, state.edit, state.items, state.listId を変更のたび保存
   useEffect(() => {
     try {
       localStorage.setItem(LAST_VIEW_KEY, JSON.stringify({
         showStorageBox,
         edit: state.edit,
         items: state.items,
+        listId: state.listId, // リストIDも保存
       }));
     } catch {}
-  }, [showStorageBox, state.edit, state.items]);
+  }, [showStorageBox, state.edit, state.items, state.listId]);
 
   // 100vh 問題（スマホ iframe）対策
   useRealViewportHeight();
@@ -426,27 +448,55 @@ export default function App() {
           try {
             const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
             const box = boxRaw ? JSON.parse(boxRaw) : [];
-            const title = getNowString();
-            const entry = {
-              id: uid(),
-              title,
-              savedAt: Date.now(),
-              items: validItems,
-            };
-            box.unshift(entry);
-            localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+            
+            // 現在のリストにIDがあり、保存ボックスに同じIDのリストがある場合は上書き保存
+            if (state.listId) {
+              const idx = box.findIndex((e: any) => e.id === state.listId);
+              if (idx !== -1) {
+                box[idx] = {
+                  ...box[idx],
+                  items: validItems,
+                  savedAt: Date.now(),
+                };
+                localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+              } else {
+                // IDがあるが保存ボックスに存在しない場合は新規保存
+                const title = getNowString();
+                const entry = {
+                  id: state.listId,
+                  title,
+                  savedAt: Date.now(),
+                  items: validItems,
+                };
+                box.unshift(entry);
+                localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+              }
+            } else {
+              // IDがない場合は新規保存
+              const title = getNowString();
+              const entry = {
+                id: uid(),
+                title,
+                savedAt: Date.now(),
+                items: validItems,
+              };
+              box.unshift(entry);
+              localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+            }
           } catch {}
         }
         setState({
           edit: true,
           items: lines.map((t) => ({ id: uid(), text: t, checked: false })),
+          listId: undefined, // 新規リストなのでIDをクリア
         });
         setCurrentStorageBoxId(null);
       } else {
-        setState(({ items, edit }) => ({
+        setState((prev) => ({
+          ...prev,
           edit: true,
           items: [
-            ...items,
+            ...prev.items,
             ...lines.map((t) => ({ id: uid(), text: t, checked: false })),
           ],
         }));
@@ -593,17 +643,39 @@ export default function App() {
       }
       const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
       const box = boxRaw ? JSON.parse(boxRaw) : [];
-      // タイトル自動生成
+      
+      // 現在のリストにIDがあり、保存ボックスに同じIDのリストがある場合は上書き保存
+      if (state.listId) {
+        const idx = box.findIndex((e: any) => e.id === state.listId);
+        if (idx !== -1) {
+          box[idx] = {
+            ...box[idx],
+            items: validItems,
+            savedAt: Date.now(),
+          };
+          localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+          setSaveDone(true);
+          setTimeout(() => setSaveDone(false), 1000); // 1秒で戻す
+          return;
+        }
+      }
+      
+      // 新規保存: 新しいIDを発行して保存
+      const newId = uid();
       const title = getNowString();
       const entry = {
-        id: uid(),
+        id: newId,
         title,
         savedAt: Date.now(),
         items: validItems,
       };
       box.unshift(entry); // 先頭に追加
       localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
-      setCurrentStorageBoxId(entry.id); // 保存直後はこのリストを編集中とみなす
+      setCurrentStorageBoxId(newId); // 保存直後はこのリストを編集中とみなす
+      
+      // 保存後、このリストのIDを設定（次回保存時に上書き保存される）
+      setState(prev => ({ ...prev, listId: newId }));
+      
       setSaveDone(true);
       setTimeout(() => setSaveDone(false), 1000); // 1秒で戻す
     } catch (e) {
@@ -665,7 +737,7 @@ export default function App() {
   const setItemTextById = (id: string, text: string) => {
     beginTypingIfNeeded();
     setState((prev: State) => ({
-      edit: prev.edit,
+      ...prev,
       items: prev.items.map((it: Item) => (it.id === id ? { ...it, text } : it)),
     }));
   };
@@ -674,7 +746,7 @@ export default function App() {
     if (!state.edit) return;
     pushHistory(state);
     setState((prev: State) => ({
-      edit: prev.edit,
+      ...prev,
       items: prev.items.map((it: Item) => (it.id === id ? { ...it, _selected: v } : it)),
     }));
   };
@@ -684,7 +756,7 @@ export default function App() {
     pushHistory(state);
     setState((prev: State) => {
       const pos = prev.items.findIndex((it: Item) => it.id === id);
-      if (pos < 0) return { edit: prev.edit, items: prev.items };
+      if (pos < 0) return prev;
       const next = [...prev.items];
       const newItem = { id: uid(), text: "", checked: false };
       next.splice(pos + 1, 0, newItem);
@@ -695,7 +767,7 @@ export default function App() {
         ta?.focus();
         ta?.setSelectionRange(0, 0);
       }, 0);
-      return { edit: prev.edit, items: next };
+      return { ...prev, items: next };
     });
   };
 
@@ -703,7 +775,7 @@ export default function App() {
     if (!state.edit) return;
     pushHistory(state);
     setState((prev: State) => ({
-      edit: prev.edit,
+      ...prev,
       items: prev.items.filter((it: Item) => it.id !== id),
     }));
   };
@@ -723,7 +795,7 @@ export default function App() {
   const doReset = () => {
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     pushHistory(state);
-    setState({ edit: true, items: [{ id: uid(), text: "", checked: false }] });
+    setState({ edit: true, items: [{ id: uid(), text: "", checked: false }], listId: undefined });
     setResetArmed(false);
   };
   useEffect(
@@ -938,9 +1010,9 @@ export default function App() {
       return;
     }
     pushHistory(state);
-    setState(({ items, edit }) => ({
-      edit,
-      items: reorderAndUncheck(items, draggingIds, insertAt),
+    setState((prev) => ({
+      ...prev,
+      items: reorderAndUncheck(prev.items, draggingIds, insertAt),
     }));
     cleanup();
   };
@@ -1062,13 +1134,13 @@ export default function App() {
 
   // 保存ボックスリストの自動保存
   useEffect(() => {
-    if (!currentStorageBoxId) return;
+    if (!state.listId) return;
     // 現在のリストが保存ボックスのどれかと一致する場合のみ
     try {
       const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
       if (!boxRaw) return;
       const box = JSON.parse(boxRaw);
-      const idx = box.findIndex((e: any) => e.id === currentStorageBoxId);
+      const idx = box.findIndex((e: any) => e.id === state.listId);
       if (idx === -1) return;
       // itemsが違う場合のみ更新
       const curItems = state.items.filter((it: Item) => it.text.trim() !== "");
@@ -1083,7 +1155,7 @@ export default function App() {
         localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
       }
     } catch {}
-  }, [state.items, currentStorageBoxId]);
+  }, [state.items, state.listId]);
 
   return (
     <>
@@ -1142,7 +1214,7 @@ export default function App() {
                   }}
                   onOpen={() => {
                     saveCurrentListToBox();
-                    setState({ edit: true, items: entry.items });
+                    setState({ edit: true, items: entry.items, listId: entry.id });
                     setCurrentStorageBoxId(entry.id);
                     setShowStorageBox(false);
                   }}
@@ -1503,6 +1575,7 @@ export default function App() {
             primeHaptics();
             endTyping();
             setState((s) => ({
+              ...s,
               edit: !s.edit,
               items: s.edit ? s.items.filter((it) => it.text.trim() !== "") : s.items
             }));
