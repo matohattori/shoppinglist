@@ -1218,6 +1218,9 @@ export default function App() {
                     setCurrentStorageBoxId(entry.id);
                     setShowStorageBox(false);
                   }}
+                  onRefresh={() => {
+                    setStorageBoxRefreshKey(prev => prev + 1);
+                  }}
                 />
               ))}
             </div>
@@ -1607,9 +1610,12 @@ function SavedListItem(props: {
   entry: any;
   onDelete: () => void;
   onOpen: () => void;
+  onRefresh: () => void;
 }) {
-  const { entry, onDelete, onOpen } = props;
+  const { entry, onDelete, onOpen, onRefresh } = props;
   const { swipeState, onPointerDown } = useSwipeToDelete(onDelete);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(entry.customTitle || '');
 
   const wrapperStyle: React.CSSProperties = {
     position: 'relative',
@@ -1646,6 +1652,24 @@ function SavedListItem(props: {
     borderRadius: 10,
   };
 
+  const saveTitle = () => {
+    const STORAGEBOX_KEY = "shoppinglist2_storagebox";
+    try {
+      const boxRaw = localStorage.getItem(STORAGEBOX_KEY);
+      if (!boxRaw) return;
+      const box = JSON.parse(boxRaw);
+      const idx = box.findIndex((e: any) => e.id === entry.id);
+      if (idx !== -1) {
+        box[idx] = { ...box[idx], customTitle: editedTitle.trim() };
+        localStorage.setItem(STORAGEBOX_KEY, JSON.stringify(box));
+      }
+    } catch (e) {
+      console.error("Failed to save title:", e);
+    }
+    setIsEditingTitle(false);
+    onRefresh();
+  };
+
   return (
     <div style={wrapperStyle}>
       {/* Red background bar with trash icon */}
@@ -1664,19 +1688,105 @@ function SavedListItem(props: {
         onPointerDown(e);
       }}>
         <div
-          style={{ flex: 1, cursor: 'pointer' }}
-          onClick={onOpen}
-          title="このリストを表示"
+          style={{ flex: 1 }}
+          onClick={(e) => {
+            // If editing title, save it when clicking anywhere in the item area
+            if (isEditingTitle) {
+              saveTitle();
+            }
+          }}
         >
-          <div style={{fontWeight: 600, fontSize: 16, marginBottom: 4}}>
-            {/* 最終更新日時のみ表示 */}
-            {(() => {
-              const d = new Date(entry.savedAt);
-              const z2 = (n: number) => (n < 10 ? '0' : '') + n;
-              return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
-            })()}
+          {/* Date and Title in horizontal layout */}
+          <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap'}}>
+            {/* Date/Time */}
+            <div 
+              style={{fontWeight: 600, fontSize: 16, cursor: 'pointer'}}
+              onClick={(e) => {
+                if (!isEditingTitle) {
+                  onOpen();
+                }
+              }}
+              title="このリストを表示"
+            >
+              {(() => {
+                const d = new Date(entry.savedAt);
+                const z2 = (n: number) => (n < 10 ? '0' : '') + n;
+                return `${d.getFullYear()}-${z2(d.getMonth()+1)}-${z2(d.getDate())} ${z2(d.getHours())}:${z2(d.getMinutes())}`;
+              })()}
+            </div>
+            
+            {/* Title Area */}
+            {isEditingTitle ? (
+              <input
+                type="text"
+                value={editedTitle}
+                onChange={(e) => setEditedTitle(e.target.value)}
+                onBlur={saveTitle}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    saveTitle();
+                  } else if (e.key === 'Escape') {
+                    setEditedTitle(entry.customTitle || '');
+                    setIsEditingTitle(false);
+                  }
+                }}
+                autoFocus
+                placeholder="タイトルを入力"
+                style={{
+                  border: '1px solid #2563eb',
+                  borderRadius: 12,
+                  padding: '2px 10px',
+                  fontSize: 14,
+                  outline: 'none',
+                  background: '#fff',
+                  minWidth: 120,
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditingTitle(true);
+                }}
+                style={{
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '2px 10px',
+                  borderRadius: 12,
+                  fontSize: 14,
+                  background: entry.customTitle ? '#e0e7ff' : '#f3f4f6',
+                  color: entry.customTitle ? '#3730a3' : '#6b7280',
+                  border: '1px solid',
+                  borderColor: entry.customTitle ? '#c7d2fe' : '#e5e7eb',
+                  transition: 'all 0.15s',
+                }}
+                title="タイトルを編集"
+              >
+                {entry.customTitle ? (
+                  <span style={{fontWeight: 500}}>{entry.customTitle}</span>
+                ) : (
+                  <>
+                    <span style={{fontSize: 16, fontWeight: 500}}>+</span>
+                    <span>タイトルを追加</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
-          <div style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6}}>
+          
+          {/* Items preview */}
+          <div 
+            style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6, cursor: 'pointer'}}
+            onClick={(e) => {
+              if (!isEditingTitle) {
+                onOpen();
+              }
+            }}
+            title="このリストを表示"
+          >
             {entry.items.slice(0, 4).map((it: any, idx: number) => (
               <span key={idx} style={{
                 background: '#fff',
