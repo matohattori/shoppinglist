@@ -1689,13 +1689,23 @@ function SavedListItem(props: {
       }}>
         <div
           style={{ flex: 1 }}
+          onClick={(e) => {
+            // If editing title, save it when clicking anywhere in the item area
+            if (isEditingTitle) {
+              saveTitle();
+            }
+          }}
         >
           {/* Date and Title in horizontal layout */}
           <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap'}}>
             {/* Date/Time */}
             <div 
               style={{fontWeight: 600, fontSize: 16, cursor: 'pointer'}}
-              onClick={onOpen}
+              onClick={(e) => {
+                if (!isEditingTitle) {
+                  onOpen();
+                }
+              }}
               title="このリストを表示"
             >
               {(() => {
@@ -1770,7 +1780,11 @@ function SavedListItem(props: {
           {/* Items preview */}
           <div 
             style={{fontSize: 13, color: '#666', display: 'flex', flexWrap: 'wrap', gap: 6, cursor: 'pointer'}}
-            onClick={onOpen}
+            onClick={(e) => {
+              if (!isEditingTitle) {
+                onOpen();
+              }
+            }}
             title="このリストを表示"
           >
             {entry.items.slice(0, 4).map((it: any, idx: number) => (
